@@ -27,7 +27,7 @@ well-known files in the addon's root are consulted too — read-only, size-cappe
 | `X-Curse-Project-ID` | CurseForge, with your key |
 | Any other `X-Website` | Shown as *Check manually* |
 | `$Revision: N $` in `Ver.lua` | Appended when `## Version` is just `9.6` |
-| `## Interface` vs the game's build | *Not for Retail* / *out of date* decided by numbers, not guesses |
+| `## Interface` vs the game's build | *No .toc for Retail* / *out of date* decided by numbers, not guesses |
 | Same GitHub repo, `## Dependencies` / `## X-Part-Of`, or `## OptionalDeps` by the same author | Grouped as a family |
 
 An addon's companions inherit its repository, so *Routine Data* is checked
@@ -52,7 +52,7 @@ reads as no override.
 
 | Searched | Key | How |
 |---|---|---|
-| WoWInterface | none | Its whole catalog (about 6 MB, 8 000+ addons) is downloaded once per session when you open the page, then searched locally: names first, most downloaded this month first |
+| WoWInterface | none | Its whole catalog (about 6 MB, 8 000+ addons) is downloaded when you open the page (at most once every six hours), then searched locally: names first, most downloaded this month first |
 | Tukui | none | ElvUI and Tukui |
 | GitHub | none | Repositories named like your query, Lua only, most starred first |
 | CurseForge | yours | Most popular first |
