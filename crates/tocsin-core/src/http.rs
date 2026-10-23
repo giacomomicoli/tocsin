@@ -29,7 +29,7 @@ pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 const USER_AGENT: &str = concat!(
     "tocsin/",
     env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/fakejack/tocsin)"
+    " (+https://github.com/giacomomicoli/tocsin)"
 );
 
 /// Errors from [`Http`].

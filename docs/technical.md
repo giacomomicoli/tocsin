@@ -183,7 +183,7 @@ that way:
 - Releases are built only by the GitHub release workflow, never on a
   developer's machine. Each release zip and the exe inside it carry a GitHub
   build provenance attestation that ties them to the commit and workflow run
-  that produced them; `gh attestation verify <file> --repo fakejack/tocsin`
+  that produced them; `gh attestation verify <file> --repo giacomomicoli/tocsin`
   checks it.
 
 Found something? See [SECURITY.md](../SECURITY.md).
