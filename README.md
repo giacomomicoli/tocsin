@@ -1,8 +1,9 @@
 # Tocsin
 
 Tocsin tells you when your World of Warcraft addons have a newer version out,
-and updates them for you when it can. It doesn't matter where you got them:
-CurseForge, WoWInterface, GitHub, Tukui, or a zip a guildmate sent you.
+and updates them for you when it can. It reads the addons you already have
+and asks the site each one came from: CurseForge, WoWInterface, GitHub or
+Tukui.
 
 It's one small Windows program. No account, no login, nothing left running in
 the background. You open it, it looks at your AddOns folder, and it tells you
@@ -14,12 +15,19 @@ what's out of date.
 
 ## Why I made it
 
-Most addon managers want to be *the* way you install addons: a store, a
-login, a built-in browser, an icon in the tray. If you installed something by
-hand, or from a site they don't cover, they lose track of it.
+Two reasons, both selfish.
 
-Tocsin doesn't care how an addon got onto your disk. It looks at what's there
-and asks the place it came from whether there's something newer.
+I wanted to learn Rust on something I'd actually use, and an addon checker is
+about the right size: it reads some text files and talks to a few websites.
+
+And I was tired of the big addon clients. They want to be *the* way you
+install addons: a store, a login, a built-in browser, ads, an icon in the
+tray that outlives the game. All I wanted was a window that looks at my
+AddOns folder and says what's out of date.
+
+So that's what Tocsin does. It reads what's already on disk and, when an
+addon says where it's published, asks that site for the latest version. When
+it can't tell, it says so and gives you the link, rather than pretending.
 
 ## How it works
 
@@ -32,6 +40,10 @@ If the addon doesn't say, Tocsin looks for a link in its changelog or readme.
 If there's simply no one to ask (addons sold on the author's own site, like
 Zygor), it tells you to check by hand and gives you the link.
 
+A zip a guildmate sent you is tracked only if the addon inside names a site
+Tocsin knows. If it doesn't, you can point Tocsin at one yourself (see
+*Overriding the guess* in [docs/technical.md](docs/technical.md)).
+
 Addons that come in several folders, like *Deadly Boss Mods* and its modules,
 are shown together as one entry so the list stays short.
 
@@ -42,15 +54,20 @@ profiles (the `WTF` folder) are never modified.
 
 1. Download the `.zip` from the [latest release](../../releases/latest) and
    unzip it wherever you like. There's nothing to install: `tocsin.exe` *is*
-   the app, and deleting the folder removes it.
+   the app, and deleting the folder removes it. The only things left behind
+   are a small settings file under `%APPDATA%\tocsin`, a cache under
+   `%LOCALAPPDATA%\tocsin`, your API keys in Credential Manager, and the
+   `.tocsin-*` folders inside `AddOns`.
 2. Run `tocsin.exe`. If Windows shows a blue "Windows protected your PC" window, click
    *More info*, then *Run anyway*. That's Windows being careful with a
    program from a small project it hasn't seen many times yet.
-3. The first time, Tocsin asks for your game folder. Pick `_retail_` (or
-   `_classic_era_`, `_classic_`) inside your World of Warcraft folder.
+3. The first time, Tocsin asks for your game folder. Pick your World of
+   Warcraft folder, or `_retail_` (or `_classic_era_`, `_classic_`,
+   `_classic_forever_`) inside it. The `Interface` or `AddOns` folder works
+   too.
 
-From then on you'll see every addon you have, the version you're on, and the
-newest one available.
+From then on you'll see every addon you have, the version you're on, and,
+for the ones Tocsin can ask about, the newest one available.
 
 ### Checking the download (optional)
 
@@ -63,7 +80,9 @@ Get-FileHash tocsin-*-windows-x64.zip
 ```
 
 The long code it prints must match the one in `SHA256SUMS.txt` on the same
-release page. If it doesn't, don't run it, and open an issue.
+release page (PowerShell prints it in capitals, the file in lower case; only
+the letters and digits matter). If it doesn't match, don't run it, and open
+an issue.
 
 If you use the [GitHub CLI](https://cli.github.com/), you can go one step
 further and check that the file was built from this repository:
@@ -83,7 +102,10 @@ Each addon gets a badge:
 | **Update available** | There's a newer version. |
 | **Up to date** | You have the latest. |
 | **Ahead of source** | You have something newer than the site shows (a test version, or the site is behind). |
-| **Check manually** | Tocsin can't ask anyone about this one. *Open* takes you to its page. |
+| **Version unknown** | The site answered, but the addon doesn't say which version you have, so Tocsin can't compare. |
+| **Check manually** | Tocsin can't ask anyone about this one. The link to check is shown under the name. |
+| **No source** | Nothing in the addon says where it comes from. You can tell Tocsin (see *Something isn't right?*). |
+| **Ignored** | You asked Tocsin to skip it. |
 | **Missing** | Another addon needs this one, and you don't have it. *Install* fetches it. |
 | **Error** | The site didn't answer, or it needs a CurseForge key (see below). |
 
@@ -122,8 +144,8 @@ up.
 **Get addons** searches CurseForge, WoWInterface, GitHub and Tukui at the same
 time. An addon available on several sites shows up once, with one line per
 site, so you can choose where to get it from. Each line shows how popular it
-is and when it was last updated, which is handy to spot an old copy someone
-forgot on one of them.
+is and the year it was last updated, which is handy to spot an old copy
+someone forgot on one of them.
 
 Tocsin remembers where you installed an addon from and keeps checking there.
 Addons you already have are marked *Installed*. Search runs when you press
@@ -154,19 +176,27 @@ sites. The ones it can't will say *API key needed*.
 You can also add a GitHub token there. You don't need one, it just lets
 Tocsin ask GitHub more often.
 
-Keys are kept in Windows' own Credential Manager, never in a file, and are
-only sent to the site they belong to.
+Keys are kept in Windows' own Credential Manager, never written to a file by
+Tocsin, and are only sent to the site they belong to. If you prefer, set
+`TOCSIN_CURSEFORGE_KEY` / `TOCSIN_GITHUB_TOKEN` in your environment instead;
+those win.
 
 ## Privacy
 
 - Tocsin has no account, no analytics, and no server of its own. It talks
-  only to the addon sites listed above.
-- When you search, it sends what you typed to GitHub and CurseForge. When it
-  checks for updates, it asks each site about the addons that come from it.
-  Nothing else about you or your computer is sent.
+  only to the addon sites listed above, and to their picture servers for the
+  addon icons.
+- When you search, it sends what you typed to GitHub and CurseForge
+  (WoWInterface and Tukui are searched in lists Tocsin downloads, so they
+  never see your query). When it checks for updates, it asks each site about
+  the addons that come from it. If you added a CurseForge key, it also asks
+  CurseForge for the logos of your CurseForge addons, which tells CurseForge
+  which ones you have. Nothing else about you or your computer is sent.
 - It writes only in your `AddOns` folder (the addons, plus three hidden
-  folders for downloads in progress, previous versions and disabled addons)
-  and in its own cache. It never writes into `WTF`.
+  folders for downloads in progress, previous versions and disabled addons),
+  in its own settings file (`%APPDATA%\tocsin`) and cache
+  (`%LOCALAPPDATA%\tocsin`), and your keys go to Windows' Credential Manager.
+  It never writes into `WTF`.
 - It never installs anything without you pressing a button.
 
 The details, for those who want them, are in
@@ -178,8 +208,10 @@ The details, for those who want them, are in
   Tocsin where to look, or to skip it. See *Overriding the guess* in
   [docs/technical.md](docs/technical.md).
 - **I want to undo everything.** Previous versions live in
-  `AddOns\.tocsin-backup`, disabled addons in `AddOns\.tocsin-disabled`.
-  Moving a folder from there back into `AddOns` restores it by hand.
+  `AddOns\.tocsin-backup\<Addon>@<version>\`, disabled addons in
+  `AddOns\.tocsin-disabled\`. Moving an addon's folder from there back into
+  `AddOns` restores it by hand (Tocsin's own *Restore* button for it won't
+  work after that, which is expected).
 - **Found a bug?** Open an issue. For a security problem, see
   [SECURITY.md](SECURITY.md).
 
@@ -189,6 +221,24 @@ The details, for those who want them, are in
 - A preview of what changed before you update.
 - Linux and macOS packages.
 
+## A word on how it was written
+
+Tocsin is my first Rust project, and most of the code was written with a lot
+of help from AI coding tools. I'm a developer, but my low-level background
+stops at basic C, so I didn't write this the way a Rust veteran would.
+
+What I did do is supervise it, with security, performance and plain good
+practice as the bar: I reviewed the design and the security model
+([docs/technical.md](docs/technical.md)), the tests, and what the app reads
+and writes on disk. Both crates forbid `unsafe` code, and every change has
+to pass formatting, `clippy`, the tests on Windows and Linux, and
+`cargo deny` (known vulnerabilities, licences, banned dependencies) before
+it's merged.
+
+That's the honest picture. If you know Rust better than I do and something
+looks wrong, odd or unidiomatic, I'd be glad to hear it: open an issue or a
+pull request.
+
 ## For developers
 
 Tocsin is written in Rust. How to build it, how it decides where an addon
@@ -196,6 +246,9 @@ comes from, and its security model are in
 [docs/technical.md](docs/technical.md). Issues and pull requests are welcome.
 
 ## Code signing policy
+
+Releases are not signed yet (see *What's next*). Once signing is in place,
+this is how it works.
 
 Free code signing provided by [SignPath.io](https://signpath.io), certificate
 by [SignPath Foundation](https://signpath.org).
@@ -220,9 +273,9 @@ above, with the full list in [docs/technical.md](docs/technical.md).
 MIT, see [LICENSE](LICENSE). The bundled fonts (Cinzel, Alegreya Sans,
 JetBrains Mono, in `crates/tocsin/assets/fonts`) are under the SIL Open Font
 License 1.1; their licence texts sit next to them. The release zip carries
-all of these in its `licenses` folder, together with
-`THIRD-PARTY-LICENSES.html`, which lists every open-source library inside
-Tocsin and its licence.
+the MIT licence next to `tocsin.exe`, and the font licences in its
+`licenses` folder together with `THIRD-PARTY-LICENSES.html`, which lists
+every open-source library inside Tocsin and its licence.
 
 World of Warcraft is a trademark of Blizzard Entertainment. This project is
 not affiliated with Blizzard, CurseForge, WoWInterface, Tukui or GitHub.

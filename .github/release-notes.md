@@ -1,11 +1,13 @@
 Tocsin tells you when your World of Warcraft addons have a newer version out,
-and updates them for you when it can, wherever you got them from: CurseForge,
-WoWInterface, GitHub or Tukui. One small Windows program, no account, no
-telemetry, nothing running in the background.
+and updates them for you when it can, by asking the site each one came from:
+CurseForge, WoWInterface, GitHub or Tukui. One small Windows program, no
+account, no telemetry, nothing running in the background.
 
 **Download** the `.zip` below, unzip it anywhere and run `tocsin.exe`. To
 check that the file is the one published here, see
 [Checking the download](https://github.com/giacomomicoli/tocsin#checking-the-download-optional).
 
-**[Code signing policy](https://github.com/giacomomicoli/tocsin#code-signing-policy)**:
-free code signing provided by SignPath.io, certificate by SignPath Foundation.
+This release is not signed yet: Windows may show a "Windows protected your PC"
+window the first time (click *More info*, then *Run anyway*). Signing is
+planned; see the
+**[Code signing policy](https://github.com/giacomomicoli/tocsin#code-signing-policy)**.
