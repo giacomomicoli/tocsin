@@ -10,7 +10,7 @@ what's out of date.
 
 > *tocsin*: an alarm bell. Also, it reads `.toc` files. Sorry.
 
-<!-- screenshot: docs/screenshot.png -->
+![Tocsin's library: installed addons with their versions, update badges and actions](docs/screenshot.png)
 
 ## Why I made it
 
