@@ -195,6 +195,26 @@ Tocsin is written in Rust. How to build it, how it decides where an addon
 comes from, and its security model are in
 [docs/technical.md](docs/technical.md). Issues and pull requests are welcome.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate
+by [SignPath Foundation](https://signpath.org).
+
+- Only Tocsin itself is signed: the program built from the source in this
+  repository, by the [release workflow](.github/workflows/release.yml), from
+  a version tag. Nothing built on a personal computer is ever signed.
+- Every signature is approved by hand, one release at a time.
+- Releases up to and including v0.1.0 were published before signing was in
+  place and are not signed.
+
+Team roles:
+
+- Committers and reviewers: [giacomomicoli](https://github.com/giacomomicoli)
+- Approvers: [giacomomicoli](https://github.com/giacomomicoli)
+
+Privacy: what Tocsin sends, and to whom, is described in [Privacy](#privacy)
+above, with the full list in [docs/technical.md](docs/technical.md).
+
 ## License
 
 MIT, see [LICENSE](LICENSE). The bundled fonts (Cinzel, Alegreya Sans,
