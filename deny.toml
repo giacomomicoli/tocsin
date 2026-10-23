@@ -2,6 +2,11 @@
 [advisories]
 version = 2
 yanked = "deny"
+# Vulnerabilities fail the build wherever they are. "Unmaintained" notices only
+# fail for crates we depend on directly: the transitive ones (paste, ttf-parser,
+# zvariant & co. under iced and keyring) can't be swapped from here, and
+# blocking every release on them would teach us to ignore the check.
+unmaintained = "workspace"
 
 [licenses]
 version = 2
