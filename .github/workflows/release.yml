@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  # Build provenance: id-token signs the attestation, attestations stores it.
+  id-token: write
+  attestations: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p tocsin
+      # MIT/Apache crates ask for their notices to ship with the binary.
+      - name: Third-party licences
+        run: |
+          cargo install cargo-about --version 0.9.2 --locked --features cli
+          cargo about generate --manifest-path crates/tocsin/Cargo.toml --locked -o THIRD-PARTY-LICENSES.html about.hbs
+      # A zip rather than a bare exe: the fonts compiled into the exe are under
+      # the OFL, which asks for their licence texts to travel with them.
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "tocsin-$env:GITHUB_REF_NAME-windows-x64"
+          New-Item -ItemType Directory -Path "$name/licenses" | Out-Null
+          Copy-Item target/release/tocsin.exe "$name/"
+          Copy-Item LICENSE "$name/LICENSE.txt"
+          Copy-Item crates/tocsin/assets/fonts/OFL-*.txt "$name/licenses/"
+          Copy-Item THIRD-PARTY-LICENSES.html "$name/licenses/"
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+          (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File -Encoding ascii SHA256SUMS.txt
+          "ZIP=$name.zip" | Out-File -Encoding ascii -Append $env:GITHUB_ENV
+          "EXE=$name/tocsin.exe" | Out-File -Encoding ascii -Append $env:GITHUB_ENV
+      # Proves the zip and the exe inside it were built by this workflow from
+      # this commit; anyone can check with `gh attestation verify`.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            ${{ env.ZIP }}
+            ${{ env.EXE }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ZIP }}
+            SHA256SUMS.txt
+          generate_release_notes: true

@@ -1,0 +1,10 @@
+# Optional. Tocsin finds the AddOns folder and the update sources on its own;
+# this file is only for overriding what the heuristics get wrong.
+# Location: %APPDATA%\tocsin\config\tocsin.toml (~/.config/tocsin/tocsin.toml on Linux)
+
+[addons.SomeAddon]
+name = "Nicer name"
+source = { type = "github", owner = "someone", repo = "some-addon" }
+
+[addons.SomeLibraryIDontCareAbout]
+ignore = true

@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = ["crates/tocsin-core", "crates/tocsin"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/fakejack/tocsin"
+rust-version = "1.80"
+
+[workspace.dependencies]
+tocsin-core = { path = "crates/tocsin-core" }
+
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+semver = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "time"] }
+# rustls instead of OpenSSL: no system dependency, pure Rust TLS.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "http2", "gzip"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+directories = "6"
+
+# Smaller, faster release binary.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Dependencies rarely change: optimize them even in dev for a snappier debug GUI.
+[profile.dev.package."*"]
+opt-level = 2

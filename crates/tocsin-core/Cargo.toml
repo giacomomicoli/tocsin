@@ -1,0 +1,36 @@
+[package]
+name = "tocsin-core"
+description = "Core library of Tocsin: .toc parsing, addon discovery and update sources for World of Warcraft addons."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+semver.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+tracing.workspace = true
+directories.workspace = true
+url = "2"
+# The byte buffer type reqwest hands back; used for the per-run response cache.
+bytes = "1"
+# OS credential store for API keys (Credential Manager / Keychain / Secret Service).
+keyring = "4"
+# Zip inspection/extraction for installs; deflate only, no bundled zstd/bzip2.
+zip = { version = "9", default-features = false, features = ["deflate"] }
+# Download integrity: our own SHA-256 record, plus CurseForge's sha1/md5 digests.
+sha2 = "0.11"
+sha1_smol = "1"
+md5 = "0.8"
+# Addon icons in search: PNG and JPEG decoding only (no other codec, no rayon).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+[dev-dependencies]
+tempfile = "3"

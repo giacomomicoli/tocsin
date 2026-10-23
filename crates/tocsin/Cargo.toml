@@ -1,0 +1,34 @@
+[package]
+name = "tocsin"
+description = "Lightweight, native desktop manager that checks World of Warcraft addons for updates at their original source."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "tocsin"
+path = "src/main.rs"
+
+[dependencies]
+tocsin-core.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+# GPU-rendered native UI; `tokio` makes iced's executor a Tokio runtime so
+# reqwest futures can run inside Task::perform.
+# `image-without-codecs`: the sidebar logo widget, with no decoder of its own
+# (iced's `image` feature turns on every codec, AVIF encoder included).
+iced = { version = "0.14", features = ["tokio", "image-without-codecs"] }
+# PNG decoding only, for the logo and the window icon.
+image = { version = "0.25", default-features = false, features = ["png"] }
+# Opens the system browser. We only ever pass https:// URLs to it.
+open = "5"
+# Native folder picker.
+rfd = "0.17"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"

@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="../../styles.css">
+<style>
+body{margin:0;background:#050409;font-family:"Alegreya Sans",sans-serif}
+a{color:var(--text-gold)}a:hover{color:var(--gold-200)}
+input::placeholder{color:var(--text-3)}
+</style>
+</helmet>
+<div data-theme="{{ theme }}" style="min-height:100vh;display:flex;align-items:flex-start;justify-content:safe center;padding:24px;box-sizing:border-box;background:#050409;color-scheme:{{ colorScheme }}">
+<div data-screen-label="Library" style="width:1120px;flex:none;display:flex;flex-direction:column;border:1px solid var(--border-frame);box-shadow:0 20px 60px rgba(0,0,0,0.6);background:var(--bg-app-gradient);color:var(--text-1);font-family:var(--font-ui)">
+  <sc-if value="{{ showTitleBar }}" hint-placeholder-val="{{ true }}">
+    <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 0 0 12px;background:var(--surface-sunken);border-bottom:1px solid var(--border-row);font-size:12px;color:var(--text-2)">
+      <img src="../../assets/logo/tocsin-emblem-32.png" alt="" style="width:16px;height:16px;display:block">
+      <span style="flex:1">{{ windowTitle }}</span>
+      <span style="width:44px;text-align:center">─</span>
+      <span style="width:44px;text-align:center">☐</span>
+      <span style="width:44px;text-align:center">✕</span>
+    </div>
+  </sc-if>
+  <div style="height:670px;display:flex">
+
+    <div style="width:240px;flex:none;display:flex;flex-direction:column;gap:14px;padding:18px 14px 14px;box-sizing:border-box;background:var(--surface-frame-gradient)">
+      <img src="../../assets/logo/tocsin-lockup-160h.png" alt="Tocsin — Addon Manager" style="height:52px;width:auto;align-self:flex-start;display:block;margin-left:4px">
+      <div style="height:1px;background:var(--rule-gold)"></div>
+      <span style="font-family:var(--font-display);font-weight:600;font-size:11px;color:var(--text-gold);padding:0 4px">INSTALLATIONS</span>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <sc-for list="{{ installs }}" as="g" hint-placeholder-count="2">
+          <button onClick="{{ g.go }}" style="display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;box-sizing:border-box;text-align:left;border:1px solid {{ g.border }};border-radius:3px;background:{{ g.bg }};color:var(--text-1);cursor:pointer;font-family:var(--font-ui)" style-hover="border-color:var(--border-row-hover)">
+            <span style="width:32px;height:32px;flex:none;box-sizing:border-box;border:1px solid var(--border-frame);border-radius:2px;background:var(--surface-sunken);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:13px;color:var(--text-gold)">{{ g.mono }}</span>
+            <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
+              <span style="font-family:var(--font-display);font-weight:600;font-size:13px;color:{{ g.nameColor }};line-height:1.3">{{ g.label }}</span>
+              <span style="font-size:12px;color:var(--text-2);line-height:1.3">{{ g.meta }}</span>
+              <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ g.short }}</span>
+            </span>
+            <sc-if value="{{ g.hasUpdates }}" hint-placeholder-val="{{ false }}">
+              <span style="flex:none;min-width:18px;padding:1px 5px;box-sizing:border-box;text-align:center;font-family:var(--font-display);font-weight:700;font-size:11px;border-radius:2px;color:var(--status-update);border:1px solid color-mix(in srgb, var(--status-update) 50%, transparent);background:color-mix(in srgb, var(--status-update) 12%, transparent)">{{ g.updates }}</span>
+            </sc-if>
+          </button>
+        </sc-for>
+      </div>
+      <button onClick="{{ addFolder }}" style="padding:5px 10px;font-size:12px;line-height:1.3;border:1px dashed var(--btn-ghost-border);border-radius:3px;background:transparent;color:var(--text-2);font-family:var(--font-ui);font-weight:500;cursor:pointer;white-space:nowrap" style-hover="background:var(--btn-ghost-bg-hover);color:var(--text-1)">+ Add game folder</button>
+      <span style="flex:1"></span>
+      <div style="height:1px;background:var(--rule-gold)"></div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <sc-for list="{{ navs }}" as="n" hint-placeholder-count="3">
+          <button onClick="{{ n.go }}" style="width:100%;padding:7px 10px;box-sizing:border-box;text-align:left;font-size:13px;line-height:1.3;border:1px solid {{ n.border }};border-radius:3px;background:{{ n.bg }};color:{{ n.fg }};font-family:{{ n.font }};font-weight:600;cursor:pointer;white-space:nowrap" style-hover="background:var(--btn-ghost-bg-hover)">{{ n.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="width:1px;flex:none;background:var(--border-frame)"></div>
+
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:14px;padding:20px;box-sizing:border-box">
+      <sc-if value="{{ onLibrary }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;gap:14px">
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+            <span style="font-family:var(--font-display);font-weight:600;font-size:18px;line-height:1.15;color:var(--text-title)">Installed Addons</span>
+            <span style="font-family:var(--font-mono);font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ clientPath }}</span>
+          </div>
+          <span style="font-size:12px;color:var(--text-2);white-space:nowrap">{{ addonCount }}</span>
+          <div style="display:flex;gap:8px">
+            <button onClick="{{ rescan }}" disabled="{{ busy }}" style="padding:8px 14px;font-size:13px;line-height:1.3;border:1px solid var(--btn-ghost-border);border-radius:3px;background:transparent;color:var(--btn-ghost-text);font-family:var(--font-ui);font-weight:500;cursor:pointer;white-space:nowrap;opacity:{{ busyOpacity }}" style-hover="background:var(--btn-ghost-bg-hover)">Rescan</button>
+            <button onClick="{{ checkUpdates }}" disabled="{{ busy }}" style="padding:8px 14px;font-size:13px;line-height:1.3;border:1px solid var(--btn-primary-border);border-radius:3px;background:var(--btn-primary-bg);color:var(--btn-primary-text);font-family:var(--font-display);font-weight:600;cursor:pointer;white-space:nowrap;opacity:{{ busyOpacity }}" style-hover="background:var(--btn-primary-bg-hover)">{{ checkLabel }}</button>
+          </div>
+        </div>
+        <div style="height:1px;background:var(--rule-gold)"></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <sc-for list="{{ chips }}" as="c" hint-placeholder-count="3">
+            <button onClick="{{ c.go }}" style="padding:6px 12px;font-size:13px;line-height:1.3;border:1px solid {{ c.border }};border-radius:3px;background:{{ c.bg }};color:{{ c.fg }};font-family:{{ c.font }};font-weight:600;cursor:pointer;white-space:nowrap;flex:none">{{ c.label }}</button>
+          </sc-for>
+          <span style="flex:1"></span>
+          <input value="{{ search }}" onChange="{{ onSearch }}" placeholder="Search…" style="width:240px;box-sizing:border-box;padding:8px;font-family:var(--font-ui);font-size:13px;color:var(--text-1);background:var(--input-bg);border:1px solid var(--input-border);border-radius:3px;outline:none" style-focus="border-color:var(--focus-ring);box-shadow:var(--shadow-glow-gold)">
+        </div>
+
+        <div style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:6px;scrollbar-width:thin;scrollbar-color:var(--border-control) transparent">
+          <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-2);font-size:13px;padding:40px">No addons match.</div>
+          </sc-if>
+          <sc-for list="{{ rows }}" as="r" hint-placeholder-count="8">
+            <div style="padding-left:{{ r.indent }};flex:none">
+              <div style="display:flex;align-items:center;gap:14px;padding:{{ r.pad }};border-radius:2px;border:1px solid {{ r.border }};background:{{ r.bg }};color:{{ r.fg }}" style-hover="border-color:var(--border-row-hover)">
+                <sc-if value="{{ r.nested }}" hint-placeholder-val="{{ false }}">
+                  <span style="font-size:14px;color:var(--text-3)">└</span>
+                </sc-if>
+                <div style="width:{{ r.iconSize }};height:{{ r.iconSize }};flex:none;box-sizing:border-box;border:1px solid var(--border-frame);border-radius:2px;background:var(--surface-sunken);display:flex;align-items:center;justify-content:center;overflow:hidden;opacity:{{ r.iconOpacity }}">
+                  <sc-if value="{{ r.hasIcon }}" hint-placeholder-val="{{ false }}">
+                    <div style="width:100%;height:100%;background-image:{{ r.iconBg }};background-size:cover;background-position:center"></div>
+                  </sc-if>
+                  <sc-if value="{{ r.noIcon }}" hint-placeholder-val="{{ true }}">
+                    <span style="font-family:var(--font-display);font-weight:700;font-size:{{ r.monoSize }};color:var(--text-gold)">{{ r.mono }}</span>
+                  </sc-if>
+                </div>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+                  <span style="font-size:{{ r.nameSize }};font-weight:500;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }}</span>
+                  <span style="font-size:12px;line-height:1.3;color:{{ r.metaColor }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.meta }}</span>
+                  <sc-for list="{{ r.notes }}" as="nt" hint-placeholder-count="0">
+                    <span style="font-size:12px;line-height:1.3;color:{{ nt.color }}">{{ nt.text }}</span>
+                  </sc-for>
+                </div>
+                <sc-if value="{{ r.showVersions }}" hint-placeholder-val="{{ true }}">
+                  <div style="width:120px;flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-family:var(--font-mono)">
+                    <span style="font-size:13px">{{ r.installed }}</span>
+                    <span style="font-size:12px;color:var(--text-2)">{{ r.latest }}</span>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ r.showBadge }}" hint-placeholder-val="{{ true }}">
+                  <div style="width:150px;flex:none;display:flex;justify-content:flex-end">
+                    <span style="font-family:var(--font-display);font-weight:600;font-size:11px;line-height:1.3;padding:3px 8px;border-radius:2px;white-space:nowrap;color:{{ r.badgeColor }};border:1px solid {{ r.badgeBorder }};background:{{ r.badgeBg }}">{{ r.badge }}</span>
+                  </div>
+                </sc-if>
+                <div style="display:flex;gap:8px;flex:none">
+                  <sc-for list="{{ r.actions }}" as="a" hint-placeholder-count="2">
+                    <button onClick="{{ a.go }}" disabled="{{ a.disabled }}" style="padding:5px 10px;font-size:12px;line-height:1.3;border:1px solid {{ a.border }};border-radius:3px;background:{{ a.bg }};color:{{ a.fg }};font-family:{{ a.font }};font-weight:{{ a.weight }};cursor:pointer;white-space:nowrap;opacity:{{ a.opacity }};flex:none" style-hover="filter:brightness(1.2)">{{ a.label }}</button>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ onDiscover }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Get addons" style="display:flex;flex-direction:column;gap:2px">
+          <span style="font-family:var(--font-display);font-weight:600;font-size:18px;line-height:1.15;color:var(--text-title)">Get Addons</span>
+          <span style="font-family:var(--font-mono);font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ installTarget }}</span>
+        </div>
+        <div style="height:1px;background:var(--rule-gold)"></div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <input value="{{ dQuery }}" onChange="{{ onDQuery }}" onKeyDown="{{ onDKey }}" placeholder="Search addons by name…" style="flex:1;min-width:0;box-sizing:border-box;padding:10px;font-family:var(--font-ui);font-size:13px;color:var(--text-1);background:var(--input-bg);border:1px solid var(--input-border);border-radius:3px;outline:none" style-focus="border-color:var(--focus-ring);box-shadow:var(--shadow-glow-gold)">
+            <button onClick="{{ doSearch }}" disabled="{{ dSearching }}" style="padding:9px 16px;font-size:13px;line-height:1.3;border:1px solid var(--btn-primary-border);border-radius:3px;background:var(--btn-primary-bg);color:var(--btn-primary-text);font-family:var(--font-display);font-weight:600;cursor:pointer;white-space:nowrap;flex:none;opacity:{{ dSearchOpacity }}" style-hover="background:var(--btn-primary-bg-hover)">{{ searchLabel }}</button>
+          </div>
+          <sc-if value="{{ catalogLoading }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="display:flex;gap:6px;padding:0 2px">
+                <sc-for list="{{ dots }}" as="dt" hint-placeholder-count="3">
+                  <span style="width:6px;height:6px;transform:rotate(45deg);background:{{ dt.bg }}"></span>
+                </sc-for>
+              </div>
+              <span style="font-size:12px;color:var(--text-2)">Downloading the WoWInterface catalog (about 6 MB, once per session)…</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{ catalogReady }}" hint-placeholder-val="{{ false }}">
+            <span style="font-size:12px;color:var(--text-2)">WoWInterface catalog ready: 8 214 addons.</span>
+          </sc-if>
+          <sc-if value="{{ needsCfKey }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="flex:1;font-size:12px;color:var(--text-2)">CurseForge needs an API key to be searched too.</span>
+              <button onClick="{{ goSettings }}" style="padding:4px 10px;font-size:12px;line-height:1.3;border:1px solid var(--btn-ghost-border);border-radius:3px;background:transparent;color:var(--btn-ghost-text);font-family:var(--font-ui);font-weight:500;cursor:pointer;white-space:nowrap;flex:none" style-hover="background:var(--btn-ghost-bg-hover)">Add a key</button>
+            </div>
+          </sc-if>
+        </div>
+        <sc-if value="{{ hasConfirm }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:2px;border:1px solid color-mix(in srgb, var(--status-update) 60%, transparent);background:color-mix(in srgb, var(--status-update) 8%, transparent)">
+            <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+              <span style="font-family:var(--font-display);font-weight:600;font-size:14px;color:var(--status-update)">{{ confirmTitle }}</span>
+              <span style="font-size:13px;color:var(--text-1)">{{ confirmBody }}</span>
+            </div>
+            <button onClick="{{ cancelInstall }}" style="padding:5px 10px;font-size:12px;line-height:1.3;border:1px solid var(--btn-ghost-border);border-radius:3px;background:transparent;color:var(--btn-ghost-text);font-family:var(--font-ui);font-weight:500;cursor:pointer;white-space:nowrap;flex:none" style-hover="background:var(--btn-ghost-bg-hover)">Cancel</button>
+            <button onClick="{{ confirmInstall }}" style="padding:5px 10px;font-size:12px;line-height:1.3;border:1px solid color-mix(in srgb, var(--status-error) 55%, transparent);border-radius:3px;background:transparent;color:var(--status-error);font-family:var(--font-ui);font-weight:500;cursor:pointer;white-space:nowrap;flex:none" style-hover="background:color-mix(in srgb, var(--status-error) 16%, transparent)">Replace</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ dShowHint }}" hint-placeholder-val="{{ false }}">
+          <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px;text-align:center;color:var(--text-2);font-size:13px;text-wrap:pretty">{{ dHint }}</div>
+        </sc-if>
+        <sc-if value="{{ dSearching }}" hint-placeholder-val="{{ false }}">
+          <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:10px">
+            <div style="display:flex;gap:6px">
+              <sc-for list="{{ dots }}" as="dt" hint-placeholder-count="3">
+                <span style="width:6px;height:6px;transform:rotate(45deg);background:{{ dt.bg }}"></span>
+              </sc-for>
+            </div>
+            <span style="font-size:12px;color:var(--text-2)">Searching…</span>
+          </div>
+        </sc-if>
+        <sc-if value="{{ dHasResults }}" hint-placeholder-val="{{ true }}">
+          <div style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:6px;scrollbar-width:thin;scrollbar-color:var(--border-control) transparent">
+            <sc-for list="{{ results }}" as="f" hint-placeholder-count="3">
+              <div style="flex:none;display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:2px;border:1px solid var(--border-row);background:var(--surface-row)" style-hover="border-color:var(--border-row-hover)">
+                <div style="width:32px;height:32px;flex:none;box-sizing:border-box;border:1px solid var(--border-frame);border-radius:2px;background:var(--surface-sunken);display:flex;align-items:center;justify-content:center">
+                  <span style="font-family:var(--font-display);font-weight:700;font-size:14px;color:var(--text-gold)">{{ f.mono }}</span>
+                </div>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+                  <span style="font-size:15px;font-weight:500;line-height:1.3">{{ f.name }}</span>
+                  <span style="font-size:12px;line-height:1.3;color:var(--text-2)">{{ f.by }}</span>
+                  <span style="font-size:12px;line-height:1.3;color:var(--text-3);text-wrap:pretty">{{ f.summary }}</span>
+                </div>
+                <div style="width:400px;flex:none;display:flex;flex-direction:column;gap:6px">
+                  <sc-if value="{{ f.installed }}" hint-placeholder-val="{{ false }}">
+                    <span style="align-self:flex-start;font-family:var(--font-display);font-weight:600;font-size:11px;line-height:1.3;padding:3px 8px;border-radius:2px;color:var(--status-ok);border:1px solid color-mix(in srgb, var(--status-ok) 50%, transparent);background:color-mix(in srgb, var(--status-ok) 12%, transparent)">INSTALLED</span>
+                  </sc-if>
+                  <sc-if value="{{ f.multi }}" hint-placeholder-val="{{ false }}">
+                    <span style="font-size:11px;color:var(--text-3)">{{ f.multiLabel }}</span>
+                  </sc-if>
+                  <sc-for list="{{ f.lines }}" as="h" hint-placeholder-count="2">
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <span style="width:96px;flex:none;font-size:13px;color:var(--text-1)">{{ h.src }}</span>
+                      <span style="flex:1;min-width:0;font-size:12px;color:{{ h.factsColor }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ h.facts }}</span>
+                      <button onClick="{{ h.open }}" style="padding:5px 10px;font-size:12px;line-height:1.3;border:1px solid var(--btn-ghost-border);border-radius:3px;background:transparent;color:var(--btn-ghost-text);font-family:var(--font-ui);font-weight:500;cursor:pointer;white-space:nowrap;flex:none" style-hover="background:var(--btn-ghost-bg-hover)">Open</button>
+                      <sc-if value="{{ h.showInstall }}" hint-placeholder-val="{{ true }}">
+                        <button onClick="{{ h.install }}" disabled="{{ h.disabled }}" style="padding:5px 10px;font-size:12px;line-height:1.3;border:1px solid var(--btn-primary-border);border-radius:3px;background:var(--btn-primary-bg);color:var(--btn-primary-text);font-family:var(--font-display);font-weight:600;cursor:pointer;white-space:nowrap;flex:none;opacity:{{ h.opacity }}" style-hover="background:var(--btn-primary-bg-hover)">{{ h.installLabel }}</button>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </sc-if>
+
+      <sc-if value="{{ onSettings }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Settings" style="display:flex;flex-direction:column;gap:2px">
+          <span style="font-family:var(--font-display);font-weight:600;font-size:18px;line-height:1.15;color:var(--text-title)">Settings</span>
+          <span style="font-family:var(--font-mono);font-size:12px;color:var(--text-2)">%APPDATA%\tocsin\config\tocsin.toml</span>
+        </div>
+        <div style="height:1px;background:var(--rule-gold)"></div>
+        <div style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding:0 6px 4px 0;scrollbar-width:thin;scrollbar-color:var(--border-control) transparent">
+          <div style="flex:none;border:1px solid var(--border-frame);border-radius:4px;background:var(--surface-frame-gradient);box-shadow:var(--shadow-frame);padding:3px">
+            <div style="border:1px solid var(--border-frame-inner);border-radius:2px;padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+              <span style="font-family:var(--font-display);font-weight:600;font-size:16px;color:var(--text-title)">Game Folders</span>
+              <span style="font-size:12px;color:var(--text-2);text-wrap:pretty">Pick your World of Warcraft folder (e.g. _retail_) or its Interface folder, like in any addon manager. Add one per game version you play.</span>
+              <sc-if value="{{ noFolders }}" hint-placeholder-val="{{ false }}">
+                <span style="font-size:13px;color:var(--text-2)">No game folder added yet.</span>
+              </sc-if>
+              <sc-for list="{{ folderRows }}" as="fr" hint-placeholder-count="2">
+                <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:2px;border:1px solid var(--border-row);background:var(--surface-row)">
+                  <span style="width:96px;flex:none;display:flex">
+                    <span style="font-family:var(--font-display);font-weight:600;font-size:11px;line-height:1.3;padding:3px 8px;border-radius:2px;white-space:nowrap;color:var(--text-gold);border:1px solid var(--border-frame);background:color-mix(in srgb, var(--gold-400) 10%, transparent)">{{ fr.flavor }}</span>
+                  </span>
+                  <span style="flex:1;min-width:0;font-family:var(--font-mono);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ fr.path }}</span>
+                  <span style="font-size:12px;color:var(--text-2);white-space:nowrap">{{ fr.meta }}</span>
+                  <button onClick="{{ fr.remove }}" style="padding:4px 10px;font-size:12px;line-height:1.3;border:1px solid var(--btn-ghost-border);border-radius:3px;background:transparent;color:var(--btn-ghost-text);font-family:var(--font-ui);font-weight:500;cursor:pointer;white-space:nowrap;flex:none" style-hover="background:var(--btn-ghost-bg-hover)">Remove</button>
+                </div>
+              </sc-for>
+              <div style="display:flex;justify-content:flex-end">
+                <button onClick="{{ addFolder }}" style="padding:9px 14px;font-size:13px;line-height:1.3;border:1px solid var(--btn-primary-border);border-radius:3px;background:var(--btn-primary-bg);color:var(--btn-primary-text);font-family:var(--font-display);font-weight:600;cursor:pointer;white-space:nowrap" style-hover="background:var(--btn-primary-bg-hover)">Add game folder…</button>
+              </div>
+            </div>
+          </div>
+          <div style="flex:none;border:1px solid var(--border-frame);border-radius:4px;background:var(--surface-frame-gradient);box-shadow:var(--shadow-frame);padding:3px">
+            <div style="border:1px solid var(--border-frame-inner);border-radius:2px;padding:16px 18px;display:flex;flex-direction:column;gap:12px">
+              <span style="font-family:var(--font-display);font-weight:600;font-size:16px;color:var(--text-title)">API Keys</span>
+              <span style="font-size:12px;color:var(--text-2);text-wrap:pretty">GitHub, WoWInterface and Tukui need nothing. CurseForge only answers with a personal key: free, two minutes to get, stored in your OS credential manager, never in a file.</span>
+              <sc-for list="{{ keys }}" as="k" hint-placeholder-count="2">
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <span style="font-size:13px;font-weight:500">{{ k.label }}</span>
+                    <span style="font-size:11px;color:{{ k.statusColor }}">{{ k.status }}</span>
+                    <span style="flex:1"></span>
+                    <sc-if value="{{ k.stored }}" hint-placeholder-val="{{ false }}">
+                      <button onClick="{{ k.remove }}" style="padding:4px 10px;font-size:12px;line-height:1.3;border:1px solid color-mix(in srgb, var(--status-error) 55%, transparent);border-radius:3px;background:transparent;color:var(--status-error);font-family:var(--font-ui);font-weight:500;cursor:pointer;white-space:nowrap;flex:none" style-hover="background:color-mix(in srgb, var(--status-error) 16%, transparent)">Remove</button>
+                    </sc-if>
+                    <button onClick="{{ k.help }}" style="padding:4px 10px;font-size:12px;line-height:1.3;border:1px solid var(--btn-ghost-border);border-radius:3px;background:transparent;color:var(--btn-ghost-text);font-family:var(--font-ui);font-weight:500;cursor:pointer;white-space:nowrap;flex:none" style-hover="background:var(--btn-ghost-bg-hover)">Get a key</button>
+                  </div>
+                  <input type="password" value="{{ k.value }}" onChange="{{ k.onInput }}" placeholder="{{ k.placeholder }}" autocomplete="off" style="width:100%;box-sizing:border-box;padding:10px;font-family:var(--font-mono);font-size:13px;color:var(--text-1);background:var(--input-bg);border:1px solid var(--input-border);border-radius:3px;outline:none" style-focus="border-color:var(--focus-ring);box-shadow:var(--shadow-glow-gold)">
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="flex:none;display:flex;justify-content:flex-end">
+            <button onClick="{{ saveKeys }}" disabled="{{ saveDisabled }}" style="padding:9px 18px;font-size:13px;line-height:1.3;border:1px solid var(--btn-primary-border);border-radius:3px;background:var(--btn-primary-bg);color:var(--btn-primary-text);font-family:var(--font-display);font-weight:600;cursor:pointer;white-space:nowrap;opacity:{{ saveOpacity }}" style-hover="background:var(--btn-primary-bg-hover)">{{ saveLabel }}</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ hasNotice }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="flex:1;font-size:13px;color:{{ noticeColor }}">{{ notice }}</span>
+          <button onClick="{{ dismiss }}" style="padding:2px 8px;font-size:13px;border:1px solid var(--btn-ghost-border);border-radius:3px;background:transparent;color:var(--btn-ghost-text);cursor:pointer">×</button>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1170,&quot;height&quot;:780},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;void&quot;,&quot;light&quot;],&quot;default&quot;:&quot;void&quot;,&quot;tsType&quot;:&quot;'void' | 'light'&quot;},&quot;startScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;library&quot;,&quot;discover&quot;,&quot;settings&quot;],&quot;default&quot;:&quot;library&quot;,&quot;tsType&quot;:&quot;'library' | 'discover' | 'settings'&quot;},&quot;showTitleBar&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+const V = (s) => `var(--status-${s})`;
+const mix = (c, p) => `color-mix(in srgb, ${c} ${p}%, transparent)`;
+const LABEL = { update: 'UPDATE AVAILABLE', ok: 'UP TO DATE', ahead: 'AHEAD OF SOURCE', manual: 'CHECK MANUALLY', unknown: 'VERSION UNKNOWN', error: 'ERROR', muted: 'NOT CHECKED' };
+const TONE = { update: 'update', ok: 'ok', ahead: 'ahead', manual: 'manual', unknown: 'manual', error: 'error', muted: 'muted' };
+
+const RETAIL = [
+  { folder: 'MidnightRoutine', name: 'Routine', src: 'GitHub', inst: 'v12.0.376', latest: 'v12.0.381', st: 'update', dl: true,
+    members: [{ folder: 'RoutineData', name: 'Routine Data', src: 'GitHub', inst: 'dv12.0.13', latest: 'dv12.0.13', st: 'ok' }] },
+  { folder: 'DBM-Core', name: 'Deadly Boss Mods', src: 'CurseForge', inst: '12.0.21', latest: '12.0.24', st: 'update', dl: true,
+    members: [
+      { folder: 'DBM-StatusBarTimers', name: 'DBM StatusBarTimers', src: 'CurseForge', inst: '12.0.21', latest: '12.0.24', st: 'update', sameZip: true },
+      { folder: 'DBM-Raids-Midnight', name: 'DBM Raids — Midnight', src: 'CurseForge', inst: '12.0.21', latest: '12.0.24', st: 'update', sameZip: true }] },
+  { folder: 'WeakAuras', name: 'WeakAuras', src: 'GitHub', inst: '5.20.1', latest: '5.20.1', st: 'ok', rollback: true,
+    members: [{ folder: 'WeakAurasOptions', name: 'WeakAuras Options', src: 'GitHub', inst: '5.20.1', latest: '5.20.1', st: 'ok' }] },
+  { folder: 'HandyNotes', name: 'HandyNotes', src: 'WoWInterface', inst: 'v12.0.0', latest: 'v12.0.0', st: 'ok', missing: ['LibDataBroker-1.1'], members: [] },
+  { folder: 'Details-master', name: 'Details! Damage Meter', src: 'GitHub', inst: '—', latest: '—', st: 'unknown', members: [],
+    notes: [{ t: 'Folder is named "Details-master": a GitHub "Source code" zip extracted as-is.', c: 'error' }] },
+  { folder: 'ZygorGuidesViewer', name: 'Zygor Guides Viewer', src: 'Manual', inst: '9.6.31285', latest: '—', st: 'manual', members: [],
+    notes: [{ t: 'Check zygorguides.com', c: 'warn' }, { t: 'built for 12.0.1, game is 12.0.5', c: 'muted' }] },
+  { folder: 'Ace3', name: 'Ace3', src: 'WoWInterface', inst: 'Release-r1403', latest: 'Release-r1398', st: 'ahead', members: [] },
+  { folder: 'Plater', name: 'Plater Nameplates', src: 'CurseForge', inst: '612', latest: '—', st: 'error', members: [],
+    notes: [{ t: 'API key needed — add one in Settings', c: 'warn' }] },
+  { folder: 'Bagnon', name: 'Bagnon', src: 'WoWInterface', inst: '10.2.7', latest: '10.2.7', st: 'ok', disabled: true, members: [] },
+];
+const CLASSIC = [
+  { folder: 'Questie', name: 'Questie', src: 'GitHub', inst: 'v10.12.0', latest: 'v10.13.1', st: 'update', dl: true, members: [] },
+  { folder: 'DBM-Core', name: 'Deadly Boss Mods', src: 'CurseForge', inst: '1.15.31', latest: '1.15.31', st: 'ok',
+    members: [{ folder: 'DBM-Raids-Vanilla', name: 'DBM Raids — Vanilla', src: 'CurseForge', inst: '1.15.31', latest: '1.15.31', st: 'ok' }] },
+  { folder: 'Bagnon', name: 'Bagnon', src: 'WoWInterface', inst: '10.2.7', latest: '10.2.7', st: 'ok', members: [],
+    notes: [{ t: 'built for 1.15.5, game is 1.15.7', c: 'muted' }] },
+  { folder: 'Atlas', name: 'Atlas Classic', src: 'WoWInterface', inst: '2.1.0', latest: '—', st: 'error', members: [],
+    notes: [{ t: 'WoWInterface did not answer', c: 'warn' }] },
+];
+const clone = (l) => l.map(f => ({ ...f, members: f.members.map(m => ({ ...m })) }));
+const MOP = [
+  { folder: 'Bartender4', name: 'Bartender4', src: 'CurseForge', inst: '4.15.2', latest: '4.15.2', st: 'ok', members: [] },
+  { folder: 'pfQuest', name: 'pfQuest', src: 'GitHub', inst: '7.0.1', latest: '7.1.0', st: 'update', dl: true, members: [] },
+];
+const RESULTS = [
+  { folder: 'DBM-Core', name: 'Deadly Boss Mods', authors: ['MysticalOS', 'QartemisT'], summary: 'Timers, warnings and voice packs for every raid and dungeon boss fight.',
+    hits: [{ src: 'CurseForge', facts: '412.6M downloads · 2026' }, { src: 'WoWInterface', facts: '2.1M downloads · 2026' }, { src: 'GitHub', facts: '★ 1.1k · 2026' }] },
+  { folder: 'BigWigs', name: 'BigWigs Bossmods', authors: ['Funkydude'], summary: 'Lightweight boss mod: bars, messages and sounds for raid encounters.',
+    hits: [{ src: 'CurseForge', facts: '298.4M downloads · 2026' }, { src: 'WoWInterface', facts: '1.4M downloads · 2026' }, { src: 'GitHub', facts: '★ 520 · 2026' }] },
+  { folder: 'Details', name: 'Details! Damage Meter', authors: ['Tercioo'], summary: 'Damage, healing and threat meter with per-boss breakdowns and plugins.',
+    hits: [{ src: 'CurseForge', facts: '356.0M downloads · 2026' }, { src: 'WoWInterface', facts: '640k downloads · 2019', stale: true }, { src: 'GitHub', facts: '★ 310 · 2026' }] },
+  { folder: 'Bartender4', name: 'Bartender4', authors: ['Nevcairiel'], summary: 'Full action bar replacement with per-bar layout, paging and fading.',
+    conflicts: ['Ace3', 'LibStub'],
+    hits: [{ src: 'CurseForge', facts: '120.8M downloads · 2026' }, { src: 'WoWInterface', facts: '3.0M downloads · 2026' }, { src: 'GitHub', facts: '★ 140 · 2026' }] },
+  { folder: 'Questie', name: 'Questie', authors: ['Aero', 'BreakBB'], summary: 'Quest helper for Classic: shows quest givers, objectives and turn-ins on the map.',
+    hits: [{ src: 'GitHub', facts: '★ 1.3k · 2026' }, { src: 'CurseForge', facts: '88.2M downloads · 2026' }] },
+  { folder: 'TomTom', name: 'TomTom', authors: ['Cladhaire'], summary: 'Waypoint arrow and coordinates for the world map and minimap.',
+    hits: [{ src: 'CurseForge', facts: '61.5M downloads · 2026' }, { src: 'WoWInterface', facts: '1.9M downloads · 2018', stale: true }] },
+  { folder: 'OmniCC', name: 'OmniCC', authors: ['Tuller'], summary: 'Cooldown count text on every action button, item and aura.',
+    hits: [{ src: 'CurseForge', facts: '140.3M downloads · 2026' }, { src: 'WoWInterface', facts: '4.4M downloads · 2026' }] },
+  { folder: 'WeakAuras', name: 'WeakAuras', authors: ['Stanzilla', 'emptyrivers'], summary: 'Powerful framework to display highly customizable graphics on screen.',
+    hits: [{ src: 'GitHub', facts: '★ 1.4k · 2026' }, { src: 'CurseForge', facts: '305.7M downloads · 2026' }] },
+];
+const findResults = (q) => {
+  const n = q.trim().toLowerCase();
+  if (!n) return RESULTS;
+  return RESULTS.filter(r => r.name.toLowerCase().includes(n) || r.summary.toLowerCase().includes(n) || r.folder.toLowerCase().includes(n));
+};
+
+class Component extends DCLogic {
+  state = {
+    installs: [
+      { label: 'Retail', mono: 'R', build: '12.0.5', path: 'C:\\Program Files (x86)\\World of Warcraft\\_retail_', short: '…\\World of Warcraft\\_retail_',
+        fams: clone(RETAIL), removed: [{ key: 'OmniCC', version: '11.1.2', fam: { folder: 'OmniCC', name: 'OmniCC', src: 'CurseForge', inst: '11.1.2', latest: '11.1.2', st: 'ok', members: [] } }] },
+      { label: 'Classic Era', mono: 'CE', build: '1.15.7', path: 'C:\\Program Files (x86)\\World of Warcraft\\_classic_era_', short: '…\\World of Warcraft\\_classic_era_',
+        fams: clone(CLASSIC), removed: [] },
+    ],
+    active: 0, filter: 'all', search: '', screen: this.props.startScreen ?? 'library', busy: false, installing: null,
+    catalog: 'idle', dQuery: 'boss', dSearched: 'boss', dSearching: false, dInstalling: null, confirm: null, tick: 0,
+    keys: { curseforge: 'notset', github: 'notset' }, form: { curseforge: '', github: '' }, saving: false,
+    notice: { err: false, text: 'Checked 14 addons · 2 updates · 4 need attention.' },
+  };
+
+  componentDidMount() { if (this.state.screen === 'discover') this.loadCatalog(); }
+  componentWillUnmount() { clearInterval(this.timer); }
+  startTick() { if (!this.timer) this.timer = setInterval(() => this.setState(s => ({ tick: s.tick + 1 })), 250); }
+  stopTick() { if (!this.state.dSearching && this.state.catalog !== 'loading' && !this.state.dInstalling) { clearInterval(this.timer); this.timer = null; } }
+  loadCatalog() {
+    if (this.state.catalog === 'loading' || this.state.catalog === 'ready') return;
+    this.setState({ catalog: 'loading' }); this.startTick();
+    setTimeout(() => { this.setState({ catalog: 'ready' }, () => this.stopTick()); }, 1800);
+  }
+  search() {
+    const q = this.state.dQuery;
+    this.setState({ dSearching: true, confirm: null }); this.startTick();
+    setTimeout(() => this.setState({ dSearching: false, dSearched: q }, () => this.stopTick()), 900);
+  }
+  isInstalled(folder) {
+    const g = this.cur();
+    return !!g && g.fams.some(f => f.folder === folder || f.members.some(m => m.folder === folder));
+  }
+  installFrom(r, src) {
+    this.setState({ dInstalling: r.folder + '|' + src }); this.startTick();
+    setTimeout(() => {
+      this.setState({ dInstalling: null }, () => this.stopTick());
+      if (r.conflicts) {
+        this.setState({ confirm: { r, src } });
+      } else this.finishInstall(r, src);
+    }, 1000);
+  }
+  finishInstall(r, src) {
+    const hit = r.hits.find(h => h.src === src);
+    const v = r.folder === 'Bartender4' ? '4.15.2' : '1.0.0';
+    this.patchCur(g => ({ ...g, fams: [...g.fams, { folder: r.folder, name: r.name, src, inst: v, latest: v, st: 'ok', members: [] }] }));
+    this.setState({ confirm: null, notice: { err: false, text: `${r.name} installed from ${src}. Its updates will keep coming from there.` } });
+  }
+  saveKeys() {
+    this.setState({ saving: true });
+    setTimeout(() => this.setState(s => {
+      const keys = { ...s.keys };
+      for (const k of Object.keys(s.form)) if (s.form[k].trim()) keys[k] = 'stored';
+      const installs = keys.curseforge === 'stored'
+        ? s.installs.map(g => ({ ...g, fams: g.fams.map(f => f.st === 'error' && f.src === 'CurseForge' ? { ...f, st: 'ok', latest: f.inst, notes: [] } : f) }))
+        : s.installs;
+      return { saving: false, keys, installs, form: { curseforge: '', github: '' }, notice: { err: false, text: 'Keys saved to the Windows Credential Manager.' } };
+    }), 800);
+  }
+  removeFolder(i) {
+    this.setState(s => {
+      const installs = s.installs.filter((_, j) => j !== i);
+      return { installs, active: Math.min(s.active, Math.max(0, installs.length - 1)), notice: { err: false, text: `${s.installs[i].label} folder removed from Tocsin. Nothing on disk was touched.` } };
+    });
+  }
+  addFolder() {
+    const have = this.state.installs.map(g => g.label);
+    const next = [
+      { label: 'Retail', mono: 'R', build: '12.0.5', path: 'C:\\Program Files (x86)\\World of Warcraft\\_retail_', short: '…\\World of Warcraft\\_retail_', fams: clone(RETAIL), removed: [] },
+      { label: 'Classic Era', mono: 'CE', build: '1.15.7', path: 'C:\\Program Files (x86)\\World of Warcraft\\_classic_era_', short: '…\\World of Warcraft\\_classic_era_', fams: clone(CLASSIC), removed: [] },
+      { label: 'Classic', mono: 'C', build: '5.5.1', path: 'C:\\Program Files (x86)\\World of Warcraft\\_classic_', short: '…\\World of Warcraft\\_classic_', fams: clone(MOP), removed: [] },
+    ].find(x => !have.includes(x.label));
+    if (!next) { this.setState({ notice: { err: true, text: 'Every game folder found is already added.' } }); return; }
+    this.setState(s => ({ installs: [...s.installs, next], active: s.installs.length, notice: { err: false, text: `Added ${next.label} ${next.build}. Found ${this.count(next)} addons.` } }));
+  }
+
+  cur() { return this.state.installs[this.state.active]; }
+  patchCur(fn) {
+    this.setState(s => ({ installs: s.installs.map((g, i) => i === s.active ? fn({ ...g }) : g) }));
+  }
+  setFam(folder, fn) {
+    this.patchCur(g => ({ ...g, fams: g.fams.map(f => f.folder === folder ? fn({ ...f }) : f) }));
+  }
+  work(done) {
+    this.setState({ busy: true, notice: null });
+    setTimeout(() => { this.setState({ busy: false }); done && done(); }, 1100);
+  }
+  update(f) {
+    this.setState({ installing: f.folder });
+    this.work(() => {
+      this.setFam(f.folder, x => ({ ...x, prev: x.inst, inst: x.latest, st: 'ok', rollback: true,
+        members: x.members.map(m => m.sameZip ? { ...m, inst: m.latest, st: 'ok' } : m) }));
+      this.setState({ installing: null, notice: { err: false, text: `${f.name} updated to ${f.latest}. Rollback keeps ${f.inst}.` } });
+    });
+  }
+  rollback(f) {
+    this.work(() => {
+      this.setFam(f.folder, x => ({ ...x, inst: x.prev || x.inst, st: x.prev ? 'update' : x.st, dl: true, rollback: false,
+        members: x.members.map(m => m.sameZip ? { ...m, inst: x.prev || m.inst, st: 'update' } : m) }));
+      this.setState({ notice: { err: false, text: `${f.name} rolled back.` } });
+    });
+  }
+  remove(f) {
+    this.patchCur(g => ({ ...g, fams: g.fams.filter(x => x.folder !== f.folder), removed: [...g.removed, { key: f.folder, version: f.inst, fam: f }] }));
+    this.setState({ notice: { err: false, text: `${f.name} moved to the backup. Restore brings it back.` } });
+  }
+  restore(r) {
+    this.patchCur(g => ({ ...g, removed: g.removed.filter(x => x.key !== r.key), fams: [...g.fams, r.fam] }));
+    this.setState({ notice: { err: false, text: `${r.fam.name} restored.` } });
+  }
+  installMissing(f, dep) {
+    this.work(() => {
+      this.setFam(f.folder, x => ({ ...x, missing: [], members: [...x.members, { folder: dep, name: dep, src: x.src, inst: '1.1.6', latest: '1.1.6', st: 'ok' }] }));
+      this.setState({ notice: { err: false, text: `${dep} installed from ${f.src}.` } });
+    });
+  }
+
+  btn(label, kind, go, disabled) {
+    const k = {
+      primary: { bg: 'var(--btn-primary-bg)', border: 'var(--btn-primary-border)', fg: 'var(--btn-primary-text)', font: 'var(--font-display)', weight: 600 },
+      ghost: { bg: 'transparent', border: 'var(--btn-ghost-border)', fg: 'var(--btn-ghost-text)', font: 'var(--font-ui)', weight: 500 },
+      danger: { bg: 'transparent', border: mix(V('error'), 55), fg: V('error'), font: 'var(--font-ui)', weight: 500 },
+    }[kind];
+    const off = disabled || this.state.busy;
+    return { label, ...k, go: off ? undefined : go, disabled: off, opacity: off ? 0.4 : 1 };
+  }
+  chip(label, active, go) {
+    return active
+      ? { label, go, bg: 'var(--btn-selected-bg)', border: 'var(--btn-selected-border)', fg: 'var(--btn-selected-text)', font: 'var(--font-display)' }
+      : { label, go, bg: 'transparent', border: 'var(--btn-ghost-border)', fg: 'var(--btn-ghost-text)', font: 'var(--font-ui)' };
+  }
+  navItem(label, active, go) {
+    return active
+      ? { label, go, bg: 'var(--btn-selected-bg)', border: 'var(--btn-selected-border)', fg: 'var(--btn-selected-text)', font: 'var(--font-display)' }
+      : { label, go, bg: 'transparent', border: 'transparent', fg: 'var(--text-2)', font: 'var(--font-display)' };
+  }
+
+  statusOf(a) {
+    if (a.disabled) return { key: 'muted', label: 'DISABLED' };
+    if (this.state.busy && !this.state.installing) return { key: 'muted', label: 'CHECKING…' };
+    return { key: TONE[a.st], label: LABEL[a.st] };
+  }
+  attention(f) {
+    return (f.missing && f.missing.length) || ['error', 'manual', 'unknown'].includes(f.st) || (f.notes || []).some(n => n.c === 'error');
+  }
+  outdated(g) { return g.fams.filter(f => f.st === 'update' && !f.disabled).length; }
+  count(g) { return g.fams.reduce((n, f) => n + 1 + f.members.length, 0); }
+
+  addonRow(a, fam, child) {
+    const s = this.statusOf(a);
+    const c = V(s.key);
+    const disabled = !!fam.disabled;
+    const installing = this.state.installing === a.folder;
+    const actions = [this.btn('Open', 'ghost', () => this.setState({ notice: { err: false, text: `Opening ${a.name} on ${a.src}…` } }))];
+    if (!child && a.st === 'update' && a.dl && !disabled) actions.push(this.btn(installing ? 'Installing…' : 'Update', 'primary', () => this.update(a)));
+    if (!child && a.rollback) actions.push(this.btn('Rollback', 'ghost', () => this.rollback(a)));
+    if (!child) {
+      actions.push(disabled
+        ? this.btn('Enable', 'ghost', () => this.setFam(a.folder, x => ({ ...x, disabled: false })))
+        : this.btn('Disable', 'ghost', () => this.setFam(a.folder, x => ({ ...x, disabled: true }))));
+      actions.push(this.btn('Remove', 'danger', () => this.remove(a)));
+    }
+    const notes = (a.notes || []).map(n => ({ text: n.t, color: n.c === 'error' ? V('error') : n.c === 'warn' ? V('update') : 'var(--text-3)' }));
+    return {
+      key: a.folder, nested: child, indent: child ? '24px' : '0px', pad: child ? '10px 14px' : '12px 14px',
+      bg: disabled ? mix('var(--surface-row)', 40) : child ? 'var(--surface-child)' : 'var(--surface-row)',
+      border: 'var(--border-row)', fg: disabled ? 'var(--text-3)' : 'var(--text-1)',
+      name: a.name, nameSize: child ? '14px' : '15px', meta: `${a.folder} · ${a.src}`, metaColor: disabled ? 'var(--text-3)' : 'var(--text-2)', notes,
+      showVersions: true, installed: a.inst, latest: a.latest,
+      showBadge: true, badge: s.label, badgeColor: c, badgeBorder: mix(c, 50), badgeBg: mix(c, 12),
+      actions,
+    };
+  }
+
+  renderVals() {
+    const st = this.state;
+    const g = this.cur() || { label: 'No game folder', mono: '', build: '', path: 'add one in Settings', short: '', fams: [], removed: [] };
+    const theme = this.props.theme ?? 'void';
+    const q = st.search.trim().toLowerCase();
+    const outdated = this.outdated(g);
+    const attention = g.fams.filter(f => this.attention(f)).length;
+    const pass = (a, f) => {
+      const okF = st.filter === 'all' || (st.filter === 'outdated' ? a.st === 'update' : this.attention(f));
+      return okF && (!q || a.name.toLowerCase().includes(q) || a.folder.toLowerCase().includes(q));
+    };
+    const rows = [];
+    for (const f of g.fams) {
+      const members = f.members.filter(m => pass(m, f));
+      if (!pass(f, f) && !members.length) continue;
+      rows.push(this.addonRow(f, f, false));
+      members.forEach(m => rows.push(this.addonRow(m, f, true)));
+      (f.missing || []).forEach(d => {
+        const c = V('error');
+        rows.push({ key: 'miss-' + d, nested: true, indent: '24px', pad: '10px 14px', bg: 'transparent', border: mix(c, 50), fg: 'var(--text-1)',
+          name: d, nameSize: '14px', meta: `required by ${f.name} · not installed`, metaColor: c, notes: [],
+          showVersions: false, showBadge: true, badge: 'MISSING', badgeColor: c, badgeBorder: mix(c, 50), badgeBg: mix(c, 12),
+          actions: [this.btn('Install', 'primary', () => this.installMissing(f, d))] });
+      });
+    }
+    if (st.filter === 'all' && !q) g.removed.forEach(r => rows.push({
+      key: 'rm-' + r.key, nested: false, indent: '0px', pad: '10px 14px', bg: mix('var(--surface-row)', 40), border: 'var(--border-row)', fg: 'var(--text-3)',
+      name: r.key, nameSize: '14px', meta: `removed · ${r.version} kept until the next change`, metaColor: 'var(--text-3)', notes: [],
+      showVersions: false, showBadge: false, actions: [this.btn('Restore', 'ghost', () => this.restore(r))] }));
+    rows.forEach(r => {
+      const small = r.nested || r.key.startsWith('rm-');
+      r.iconSize = small ? '24px' : '32px';
+      r.monoSize = small ? '11px' : '14px';
+      r.mono = r.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2);
+      r.hasIcon = !!r.icon; r.noIcon = !r.icon; r.iconBg = r.icon ? `url("${r.icon}")` : 'none';
+      r.iconOpacity = r.key.startsWith('miss-') || r.fg === 'var(--text-3)' ? 0.5 : 1;
+    });
+
+    const count = this.count(g);
+    const go = (screen) => () => { this.setState({ screen, notice: null, form: { curseforge: '', github: '' } }); if (screen === 'discover') this.loadCatalog(); };
+    const cfKey = st.keys.curseforge === 'stored';
+    const results = st.dSearched === null ? [] : findResults(st.dSearched).map(r => {
+      const hits = r.hits.filter(h => cfKey || h.src !== 'CurseForge');
+      const installed = this.isInstalled(r.folder);
+      const canInstall = !installed && !st.busy && !st.confirm && !st.dInstalling && st.installs.length > 0;
+      return {
+        mono: r.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2), name: r.name, by: `by ${r.authors.join(', ')}`, summary: r.summary,
+        installed, multi: !installed && hits.length > 1, multiLabel: `On ${hits.length} sites: pick one`,
+        lines: hits.map(h => {
+          const running = st.dInstalling === r.folder + '|' + h.src;
+          return { src: h.src, facts: h.facts, factsColor: h.stale ? V('update') : 'var(--text-2)',
+            open: () => this.setState({ notice: { err: false, text: `Opening ${r.name} on ${h.src}…` } }),
+            showInstall: !installed, installLabel: running ? 'Installing…' : 'Install',
+            disabled: !canInstall, opacity: canInstall || running ? 1 : 0.4,
+            install: canInstall ? () => this.installFrom(r, h.src) : undefined };
+        }),
+        _n: hits.length,
+      };
+    }).filter(r => r._n > 0);
+    const lit = st.tick % 3;
+    const keyDefs = [
+      { id: 'curseforge', label: 'CurseForge API key', help: 'console.curseforge.com' },
+      { id: 'github', label: 'GitHub token (optional)', help: 'github.com/settings/tokens' },
+    ];
+    const dirty = Object.values(st.form).some(v => v.trim());
+    return {
+      theme, colorScheme: theme === 'light' ? 'light' : 'dark',
+      showTitleBar: this.props.showTitleBar ?? true,
+      windowTitle: `Tocsin — ${g.label}`,
+      installs: st.installs.map((x, i) => {
+        const on = i === st.active; const u = this.outdated(x);
+        return { label: x.label, mono: x.mono, meta: `${x.build} · ${this.count(x)} addons`, short: x.short,
+          bg: on ? 'var(--btn-selected-bg)' : 'transparent', border: on ? 'var(--btn-selected-border)' : 'var(--border-row)',
+          nameColor: on ? 'var(--btn-selected-text)' : 'var(--text-1)',
+          hasUpdates: u > 0, updates: String(u),
+          go: () => !st.busy && this.setState({ active: i, filter: 'all', search: '', notice: null }) };
+      }),
+      addFolder: () => this.addFolder(),
+      onDiscover: st.screen === 'discover', onSettings: st.screen === 'settings',
+      installTarget: st.installs.length ? `Installs into ${g.label} ${g.build} · ${g.path}` : 'Add a game folder in Settings to install addons.',
+      dQuery: st.dQuery, onDQuery: (e) => this.setState({ dQuery: e.target.value }),
+      onDKey: (e) => { if (e.key === 'Enter' && !st.dSearching) this.search(); },
+      doSearch: () => !st.dSearching && this.search(),
+      dSearching: st.dSearching, dSearchOpacity: st.dSearching ? 0.4 : 1, searchLabel: st.dSearching ? 'Searching…' : 'Search',
+      catalogLoading: st.catalog === 'loading', catalogReady: st.catalog === 'ready',
+      dots: [0, 1, 2].map(i => ({ bg: i === lit ? 'var(--accent)' : 'var(--border-control)' })),
+      needsCfKey: !cfKey, goSettings: go('settings'),
+      hasConfirm: !!st.confirm,
+      confirmTitle: st.confirm ? `Replace ${st.confirm.r.conflicts.length} folders?` : '',
+      confirmBody: st.confirm ? `${st.confirm.r.name} from ${st.confirm.src} replaces ${st.confirm.r.conflicts.length} folders already in AddOns: ${st.confirm.r.conflicts.join(', ')}. They go to the backup; Rollback restores them.` : '',
+      cancelInstall: () => this.setState({ confirm: null, notice: { err: false, text: 'Install cancelled; the download was deleted.' } }),
+      confirmInstall: () => st.confirm && this.finishInstall(st.confirm.r, st.confirm.src),
+      dShowHint: !st.dSearching && results.length === 0,
+      dHint: st.dSearched === null || st.dSearched === undefined
+        ? "Find addons you don't have yet. An addon offered by several sites is listed once: you pick where to install it from."
+        : `Nothing found for “${st.dSearched}”.`,
+      dHasResults: !st.dSearching && results.length > 0,
+      results,
+      noFolders: st.installs.length === 0,
+      folderRows: st.installs.map((x, i) => ({ flavor: x.label.toUpperCase(), path: x.path, meta: `${x.build} · ${this.count(x)} addons`, remove: st.busy ? undefined : () => this.removeFolder(i) })),
+      keys: keyDefs.map(k => {
+        const s = st.keys[k.id];
+        return { label: k.label, stored: s === 'stored', status: s === 'stored' ? 'saved' : 'not set',
+          statusColor: s === 'stored' ? V('ok') : 'var(--text-3)',
+          placeholder: s === 'stored' ? 'type a new key to replace it' : 'paste your key',
+          value: st.form[k.id], onInput: (e) => this.setState({ form: { ...st.form, [k.id]: e.target.value } }),
+          remove: () => this.setState({ keys: { ...st.keys, [k.id]: 'notset' }, notice: { err: false, text: `${k.label} removed from the credential manager.` } }),
+          help: () => this.setState({ notice: { err: false, text: `Opening ${k.help}…` } }) };
+      }),
+      saveKeys: () => dirty && !st.saving && this.saveKeys(),
+      saveDisabled: !dirty || st.saving, saveOpacity: dirty && !st.saving ? 1 : 0.4, saveLabel: st.saving ? 'Saving…' : 'Save',
+      navs: [this.navItem('Library', st.screen === 'library', go('library')), this.navItem('Get addons', st.screen === 'discover', go('discover')), this.navItem('Settings', st.screen === 'settings', go('settings'))],
+      clientPath: `${g.label} ${g.build} · ${g.path}`,
+      addonCount: `${count} addons`,
+      busy: st.busy, busyOpacity: st.busy ? 0.4 : 1,
+      checkLabel: st.busy ? 'Working…' : 'Check updates',
+      checkUpdates: () => this.work(() => this.setState({ notice: { err: false, text: `Checked ${count} addons · ${outdated} updates · ${attention} need attention.` } })),
+      rescan: () => this.work(() => this.setState({ notice: { err: false, text: `Found ${count} addons.` } })),
+      onLibrary: st.screen === 'library', offLibrary: st.screen !== 'library',
+      offLabel: st.screen === 'discover' ? 'Get addons' : 'Settings',
+      chips: [this.chip('All', st.filter === 'all', () => this.setState({ filter: 'all' })),
+              this.chip(`Updates ${outdated}`, st.filter === 'outdated', () => this.setState({ filter: 'outdated' })),
+              this.chip(`Needs attention ${attention}`, st.filter === 'attention', () => this.setState({ filter: 'attention' }))],
+      search: st.search, onSearch: (e) => this.setState({ search: e.target.value }),
+      rows, empty: rows.length === 0,
+      hasNotice: !!st.notice, notice: st.notice ? st.notice.text : '', noticeColor: st.notice && st.notice.err ? V('error') : 'var(--text-2)',
+      dismiss: () => this.setState({ notice: null }),
+    };
+  }
+}
+</script>
+</body>
+</html>

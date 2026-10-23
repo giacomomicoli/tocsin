@@ -1,0 +1,46 @@
+:root {
+  --sp-2: 2px;
+  --sp-4: 4px;
+  --sp-6: 6px;
+  --sp-8: 8px;
+  --sp-10: 10px;
+  --sp-12: 12px;
+  --sp-14: 14px;
+  --sp-16: 16px;
+  --sp-18: 18px;
+  --sp-20: 20px;
+  --sp-24: 24px;
+
+  /* Paddings as [vertical horizontal], mirroring iced .padding([v, h]).
+     Kept 1:1 with theme::space in crates/tocsin/src/theme.rs. */
+  --pad-btn-sm: 5px 10px;      /* space::BTN_SM */
+  --pad-btn-md: 8px 14px;      /* space::BTN_MD */
+  --pad-chip: 6px 12px;        /* space::CHIP */
+  --pad-badge: 3px 8px;        /* space::BADGE */
+  --pad-row: 12px 14px;        /* space::ROW_PAD */
+  --pad-row-child: 10px 14px;  /* space::ROW_CHILD_PAD */
+  --pad-frame: 16px 18px;      /* gilded frame, inner container */
+  --pad-window: 20px;          /* space::CONTENT_PAD */
+  --pad-sidebar: 18px 14px 14px; /* space::SIDEBAR_PAD */
+  --gap-page: 14px;            /* space::PAGE_GAP */
+  --gap-row: 8px;              /* space::ROW_GAP */
+  --indent-child: 24px;        /* space::CHILD_INDENT */
+
+  --w-sidebar: 240px;          /* space::SIDEBAR_W */
+  --w-versions: 120px;         /* space::VERSIONS_W */
+  --w-badge-col: 150px;        /* space::BADGE_COL_W */
+  --w-search: 240px;           /* space::SEARCH_W */
+  --w-sources: 400px;          /* space::SOURCES_W */
+  --w-scrollbar: 6px;          /* space::SCROLLBAR_W */
+  --icon-head: 32px;           /* space::ICON_HEAD */
+  --icon-child: 24px;          /* space::ICON_CHILD */
+  --h-lockup: 52px;            /* space::LOCKUP_H */
+  --window-w: 1120px;          /* space::WINDOW */
+  --window-h: 700px;
+
+  --r-0: 0px;
+  --r-1: 2px;  /* badges, rows */
+  --r-2: 3px;  /* buttons, inputs */
+  --r-3: 4px;  /* frames */
+  --bw: 1px;
+}

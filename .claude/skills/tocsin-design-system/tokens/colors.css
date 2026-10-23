@@ -1,0 +1,125 @@
+/* Tocsin — "Void" (dark) is the default; "Sunwell" (light) via [data-theme="light"]. */
+:root {
+  /* Void neutrals */
+  --void-950: #08060d;
+  --void-900: #0e0b16;
+  --void-850: #141020;
+  --void-800: #1a1529;
+  --void-750: #221b35;
+  --void-700: #2c2342;
+  --void-600: #3d3159;
+  --void-500: #5a4a80;
+  --void-300: #9a8cc0;
+  /* Silvermoon gold */
+  --gold-100: #fff1c9;
+  --gold-200: #f6dc95;
+  --gold-300: #e8c477;
+  --gold-400: #d4a84f;
+  --gold-500: #b08636;
+  --gold-600: #8a6626;
+  --gold-700: #5e4418;
+  /* Crimson (primary action) */
+  --crimson-400: #c2392b;
+  --crimson-500: #9a2418;
+  --crimson-600: #6e150d;
+  --crimson-700: #460b06;
+  /* Parchment / ink (Sunwell theme) */
+  --parch-50: #fdf9ef;
+  --parch-100: #f7efdc;
+  --parch-200: #ebdfc2;
+  --parch-300: #dccaa0;
+  --parch-400: #c8b386;
+  --ink-900: #24190d;
+  --ink-700: #5e4b30;
+  --ink-500: #8a7556;
+  /* WoW item-quality reference (decorative only, never body text on light) */
+  --q-poor: #9d9d9d;
+  --q-common: #ffffff;
+  --q-uncommon: #1eff00;
+  --q-rare: #0070dd;
+  --q-epic: #a335ee;
+  --q-legendary: #ff8000;
+  --q-artifact: #e6cc80;
+
+  /* ---- Semantic: Void ---- */
+  --bg-app: #0b0912;
+  --bg-app-gradient: linear-gradient(180deg, #140f22 0%, #0b0912 55%, #08060d 100%);
+  --surface-frame: #17122a;
+  --surface-frame-gradient: linear-gradient(180deg, #1e1832 0%, #120e1f 100%);
+  --surface-row: #161224;
+  --surface-row-hover: #1e1830;
+  --surface-child: #120f1d;
+  --surface-sunken: #0b0912;
+  --border-frame: var(--gold-600);
+  --border-frame-inner: rgba(232, 196, 119, 0.16);
+  --border-row: #2c2342;
+  --border-row-hover: var(--gold-700);
+  --border-control: #4a3c66;
+  --text-1: #ece4d0;
+  --text-2: #a99fbd;
+  --text-3: #6f6688;
+  --text-title: var(--gold-200);
+  --text-gold: var(--gold-300);
+  --accent: var(--gold-400);
+  --focus-ring: var(--gold-300);
+
+  --status-update: #ff9a3c;
+  --status-ok: #5fd37a;
+  --status-ahead: #b98aff;
+  --status-manual: #5aa9ff;
+  --status-error: #ff5f52;
+  --status-muted: #8a829c;
+
+  --btn-primary-bg: linear-gradient(180deg, #a52b1d 0%, #6a140c 100%);
+  --btn-primary-bg-hover: linear-gradient(180deg, #c2392b 0%, #7e1a10 100%);
+  --btn-primary-bg-pressed: linear-gradient(180deg, #6a140c 0%, #8a2014 100%);
+  --btn-primary-border: var(--gold-400);
+  --btn-primary-text: var(--gold-100);
+  --btn-ghost-bg-hover: rgba(212, 168, 79, 0.08);
+  --btn-ghost-border: var(--border-control);
+  --btn-ghost-text: var(--text-1);
+  --btn-selected-bg: linear-gradient(180deg, #3a2e12 0%, #241b0a 100%);
+  --btn-selected-border: var(--gold-400);
+  --btn-selected-text: var(--gold-200);
+  --input-bg: #0e0b16;
+  --input-border: var(--border-control);
+  --rule-gold: linear-gradient(90deg, rgba(212,168,79,0) 0%, rgba(212,168,79,0.7) 50%, rgba(212,168,79,0) 100%);
+}
+
+[data-theme="light"] {
+  --bg-app: #efe4c9;
+  --bg-app-gradient: linear-gradient(180deg, #f7efdc 0%, #ebdfc2 100%);
+  --surface-frame: #fbf6ea;
+  --surface-frame-gradient: linear-gradient(180deg, #fdf9ef 0%, #f3e9d2 100%);
+  --surface-row: #fbf6ea;
+  --surface-row-hover: #fffaf0;
+  --surface-child: #f4ead4;
+  --surface-sunken: #e9dcbc;
+  --border-frame: var(--gold-500);
+  --border-frame-inner: rgba(138, 102, 38, 0.22);
+  --border-row: #dccaa0;
+  --border-row-hover: var(--gold-500);
+  --border-control: #c8b386;
+  --text-1: #24190d;
+  --text-2: #5e4b30;
+  --text-3: #8a7556;
+  --text-title: #5a3f0e;
+  --text-gold: #7a5716;
+  --accent: var(--gold-600);
+  --focus-ring: var(--gold-600);
+
+  --status-update: #b35400;
+  --status-ok: #1f7a36;
+  --status-ahead: #7a3dc0;
+  --status-manual: #1f62b0;
+  --status-error: #b3261e;
+  --status-muted: #7d7263;
+
+  --btn-ghost-bg-hover: rgba(138, 102, 38, 0.10);
+  --btn-ghost-text: var(--text-1);
+  --btn-selected-bg: linear-gradient(180deg, #f6dc95 0%, #e8c477 100%);
+  --btn-selected-border: var(--gold-600);
+  --btn-selected-text: #3d2a08;
+  --input-bg: #fffdf6;
+  --rule-gold: linear-gradient(90deg, rgba(138,102,38,0) 0%, rgba(138,102,38,0.6) 50%, rgba(138,102,38,0) 100%);
+}

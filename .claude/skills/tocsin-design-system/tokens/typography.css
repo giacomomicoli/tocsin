@@ -1,0 +1,21 @@
+:root {
+  --font-display: "Cinzel", "Times New Roman", serif;   /* titles, wordmark, section heads, badges */
+  --font-ui: "Alegreya Sans", "Segoe UI", sans-serif;   /* everything else */
+  --font-mono: "JetBrains Mono", Consolas, monospace;   /* versions, folders, paths */
+
+  /* Scale lifted from the iced views (text(..).size(n)) */
+  --fs-11: 11px;
+  --fs-12: 12px;  /* meta, badges, small buttons */
+  --fs-13: 13px;  /* controls, installed version */
+  --fs-14: 14px;  /* child row name */
+  --fs-15: 15px;  /* row name */
+  --fs-18: 18px;  /* section head */
+  --fs-24: 24px;  /* wordmark */
+
+  --lh-tight: 1.15;
+  --lh-ui: 1.3;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-bold: 700;
+  --fw-display: 600;
+}

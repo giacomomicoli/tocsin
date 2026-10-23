@@ -1,0 +1,14 @@
+:root {
+  /* iced allows exactly one shadow per container: offset + blur + color. */
+  --shadow-frame: 0 6px 20px rgba(0, 0, 0, 0.55);
+  --shadow-glow-gold: 0 0 10px rgba(232, 196, 119, 0.35);
+  --shadow-glow-update: 0 0 10px rgba(255, 154, 60, 0.30);
+  --shadow-none: none;
+  /* No tweening in iced styles: hover/press swap instantly. Loader ticks every 250ms. */
+  --tick-loader: 250ms;
+}
+[data-theme="light"] {
+  --shadow-frame: 0 4px 14px rgba(94, 68, 24, 0.18);
+  --shadow-glow-gold: 0 0 8px rgba(176, 134, 54, 0.35);
+  --shadow-glow-update: 0 0 8px rgba(179, 84, 0, 0.25);
+}
