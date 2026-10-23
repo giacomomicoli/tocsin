@@ -1,0 +1,7 @@
+# LF everywhere, whatever core.autocrlf says on the contributor's machine.
+* text=auto eol=lf
+
+# Never touch binary assets.
+*.png binary
+*.ico binary
+*.ttf binary
