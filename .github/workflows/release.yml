@@ -40,7 +40,7 @@ jobs:
           "EXE=$name/tocsin.exe" | Out-File -Encoding ascii -Append $env:GITHUB_ENV
       # Proves the zip and the exe inside it were built by this workflow from
       # this commit; anyone can check with `gh attestation verify`.
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             ${{ env.ZIP }}
