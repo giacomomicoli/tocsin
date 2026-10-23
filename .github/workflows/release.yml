@@ -45,7 +45,7 @@ jobs:
           subject-path: |
             ${{ env.ZIP }}
             ${{ env.EXE }}
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             ${{ env.ZIP }}
