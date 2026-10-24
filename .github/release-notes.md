@@ -7,7 +7,7 @@ account, no telemetry, nothing running in the background.
 check that the file is the one published here, see
 [Checking the download](https://github.com/giacomomicoli/tocsin#checking-the-download-optional).
 
-This release is not signed yet: Windows may show a "Windows protected your PC"
-window the first time (click *More info*, then *Run anyway*). Signing is
-planned; see the
-**[Code signing policy](https://github.com/giacomomicoli/tocsin#code-signing-policy)**.
+This release is not signed: Windows may show a "Windows protected your PC"
+window the first time (click *More info*, then *Run anyway*), and PCs with
+Smart App Control turned on won't run it. See
+[Why the releases aren't signed](https://github.com/giacomomicoli/tocsin#why-the-releases-arent-signed).

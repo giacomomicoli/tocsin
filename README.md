@@ -60,7 +60,12 @@ profiles (the `WTF` folder) are never modified.
    `.tocsin-*` folders inside `AddOns`.
 2. Run `tocsin.exe`. If Windows shows a blue "Windows protected your PC" window, click
    *More info*, then *Run anyway*. That's Windows being careful with a
-   program from a small project it hasn't seen many times yet.
+   program from a small project that isn't signed (see
+   [Why the releases aren't signed](#why-the-releases-arent-signed)).
+   If your PC has **Smart App Control** turned on, Windows refuses to start
+   it and offers no *Run anyway*. There's no way around that for an unsigned
+   program, and switching Smart App Control off is a system-wide choice I
+   wouldn't make just for Tocsin.
 3. The first time, Tocsin asks for your game folder. Pick your World of
    Warcraft folder, or `_retail_` (or `_classic_era_`, `_classic_`,
    `_classic_forever_`) inside it. The `Interface` or `AddOns` folder works
@@ -217,7 +222,7 @@ The details, for those who want them, are in
 
 ## What's next
 
-- Signed Windows releases.
+- Signed Windows releases, if an affordable way to sign them comes along.
 - A preview of what changed before you update.
 - Linux and macOS packages.
 
@@ -245,28 +250,24 @@ Tocsin is written in Rust. How to build it, how it decides where an addon
 comes from, and its security model are in
 [docs/technical.md](docs/technical.md). Issues and pull requests are welcome.
 
-## Code signing policy
+## Why the releases aren't signed
 
-Releases are not signed yet (see *What's next*). Once signing is in place,
-this is how it works.
+Windows trusts a program more when it carries a code signing certificate.
+Those certificates cost money every year, and the free program for open
+source projects I applied to turned Tocsin down, so for now the releases
+are unsigned. That's why Windows warns you the first time, and why Smart App
+Control blocks it.
 
-Free code signing provided by [SignPath.io](https://signpath.io), certificate
-by [SignPath Foundation](https://signpath.org).
+What you get instead is a release you can check for yourself:
 
-- Only Tocsin itself is signed: the program built from the source in this
-  repository, by the [release workflow](.github/workflows/release.yml), from
-  a version tag. Nothing built on a personal computer is ever signed.
-- Every signature is approved by hand, one release at a time.
-- Releases up to and including v0.1.0 were published before signing was in
-  place and are not signed.
-
-Team roles:
-
-- Committers and reviewers: [giacomomicoli](https://github.com/giacomomicoli)
-- Approvers: [giacomomicoli](https://github.com/giacomomicoli)
-
-Privacy: what Tocsin sends, and to whom, is described in [Privacy](#privacy)
-above, with the full list in [docs/technical.md](docs/technical.md).
+- Every release is built by GitHub from the public code in this repository,
+  by the [release workflow](.github/workflows/release.yml), from a version
+  tag. Nothing built on a personal computer is ever published.
+- Each zip comes with its SHA-256 checksum and a GitHub build attestation
+  that ties it to the exact commit it was built from (see
+  [Checking the download](#checking-the-download-optional)).
+- If you'd rather not run a downloaded program at all, you can build Tocsin
+  yourself from the source (see [docs/technical.md](docs/technical.md)).
 
 ## License
 

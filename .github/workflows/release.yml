@@ -50,7 +50,7 @@ jobs:
           files: |
             ${{ env.ZIP }}
             SHA256SUMS.txt
-          # SignPath's terms ask every release page to describe the app and
-          # link the code signing policy; the generated changelog follows it.
+          # Every release page opens with what the app is, how to check the
+          # download and why it isn't signed; the generated changelog follows.
           body_path: .github/release-notes.md
           generate_release_notes: true
