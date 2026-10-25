@@ -40,6 +40,11 @@ Which game and build a folder belongs to comes from Blizzard's own
 `.flavor.info` and `.build.info` files, so Retail, Classic Era, Classic and
 WoW Classic Forever are told apart exactly, and sources that publish one file
 per flavor (CurseForge, GitHub release assets) are asked for the right one.
+The build number decides first: Blizzard reuses product codes for other
+games (`wow_classic_beta` carried the Mists beta, then WoW Forever 1.60;
+`wow_classic_era_ptr` tests TBC Anniversary). The product code, then the
+folder name, are fallbacks for a `.build.info` that lacks the row; their
+table reflects what each product carries as of October 2026.
 
 What Tocsin installed is remembered by release, so an author who forgets to
 bump `## Version` in the package cannot make it look stale again.
@@ -121,7 +126,12 @@ that way:
 - Files it reads: `.toc`, `CHANGELOG`/`README`, `Ver.lua` in each addon, and
   Blizzard's `.flavor.info` / `.build.info` — top level only, size-capped,
   never through a symlink or junction (a linked `.toc` or doc file is
-  ignored, a linked addon folder is skipped). Outside the game folder: its
+  ignored, a linked addon folder is skipped). When a game folder is added,
+  the picked folder is listed one level deep (no further) to find flavor
+  folders, and each is accepted only if it has a `.flavor.info` file, a
+  WoW executable (`Wow.exe`, `WowClassic.exe`, …) or a `WTF` folder; they
+  are only checked for existence, not read or run, and a link does not
+  count. Outside the game folder: its
   own `tocsin.toml`, and its cached icons (256 KiB each at most, decoded
   under the same limits as a download). Fonts and logos are built into the
   program; no asset file is read at runtime.

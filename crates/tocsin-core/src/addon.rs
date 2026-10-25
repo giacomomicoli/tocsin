@@ -431,6 +431,15 @@ pub fn scan_addons_dir_for_client(
     addons_dir: &Path,
     client: &crate::client::GameClient,
 ) -> anyhow::Result<Vec<InstalledAddon>> {
+    scan_counting_skipped(addons_dir, client).map(|(addons, _)| addons)
+}
+
+/// [`scan_addons_dir_for_client`], plus how many folders were not addons (no
+/// usable `.toc`). Folders and no addons means the wrong folder was picked.
+pub(crate) fn scan_counting_skipped(
+    addons_dir: &Path,
+    client: &crate::client::GameClient,
+) -> anyhow::Result<(Vec<InstalledAddon>, usize)> {
     let mut dirs = Vec::new();
     for entry in std::fs::read_dir(addons_dir)? {
         let entry = entry?;
@@ -455,7 +464,8 @@ pub fn scan_addons_dir_for_client(
     // Folder names differing only by case can coexist on Linux; the second key
     // keeps the order independent of which thread finished first.
     out.sort_by_cached_key(|a| (a.folder.to_lowercase(), a.folder.clone()));
-    Ok(out)
+    let skipped = dirs.len() - out.len();
+    Ok((out, skipped))
 }
 
 /// Upper bound on scan threads. Reading ~300 small folders is latency-bound

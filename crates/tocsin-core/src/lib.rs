@@ -83,6 +83,9 @@ pub struct Library {
     pub addons: Vec<InstalledAddon>,
     /// The game client this folder belongs to.
     pub client: client::GameClient,
+    /// Folders in `AddOns` that are not addons (no usable `.toc`). Many of
+    /// them and no addons means the folder holds something else.
+    pub skipped: usize,
 }
 
 impl Library {
@@ -100,7 +103,7 @@ impl Library {
     /// one read serves the scan, the rollback list and the removed list.
     pub fn load_with_log(addons_dir: &Path, manifest: &Manifest, log: &install::Log) -> anyhow::Result<Self> {
         let client = client::GameClient::detect(addons_dir);
-        let mut addons = addon::scan_addons_dir_for_client(addons_dir, &client)?;
+        let (mut addons, skipped) = addon::scan_counting_skipped(addons_dir, &client)?;
         // Disabled addons are parked in a dot-folder; list them too, flagged.
         // Only when it is a real folder: a link there would have the scan
         // read whatever it points to.
@@ -189,6 +192,7 @@ impl Library {
             addons_dir: addons_dir.to_path_buf(),
             addons,
             client,
+            skipped,
         })
     }
 }
@@ -201,6 +205,19 @@ mod tests {
         let dir = root.join(folder);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(format!("{folder}.toc")), toc).unwrap();
+    }
+
+    #[test]
+    fn counts_folders_that_are_not_addons() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_addon(tmp.path(), "Details", "## Title: Details\n");
+        // Elder Scrolls Online addons carry a .txt manifest, not a .toc.
+        let eso = tmp.path().join("LibAddonMenu-2.0");
+        std::fs::create_dir_all(&eso).unwrap();
+        std::fs::write(eso.join("LibAddonMenu-2.0.txt"), "## Title: LibAddonMenu\n").unwrap();
+        let lib = Library::load(tmp.path(), &Manifest::default()).unwrap();
+        assert_eq!(lib.addons.len(), 1);
+        assert_eq!(lib.skipped, 1);
     }
 
     #[test]

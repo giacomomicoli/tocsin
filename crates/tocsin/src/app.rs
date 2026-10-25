@@ -512,8 +512,20 @@ impl App {
                 let scope = self.scope_after_scan();
                 self.recount();
                 let missing = self.counts.missing_deps;
+                let skipped = library.skipped;
                 self.notice = Some(match (&log_error, missing) {
                     (Some(e), _) => (true, format!("Install history unreadable: {e}")),
+                    // Folders but no addons: an AddOns folder full of something else.
+                    (None, _) if self.addons.is_empty() && skipped > 0 => (
+                        true,
+                        format!(
+                            "No addons here: {skipped} {} without a .toc file. Is this the right game folder?",
+                            if skipped == 1 { "folder" } else { "folders" }
+                        ),
+                    ),
+                    (None, _) if self.addons.is_empty() => {
+                        (false, "No addons installed yet. Find some in Get addons.".into())
+                    }
                     (None, 0) => (false, format!("Found {} addons.", self.addons.len())),
                     (None, n) => (
                         true,
@@ -929,15 +941,17 @@ impl App {
             ),
             Message::GameFolderPicked(Some(path)) => {
                 match detect::normalize(&path) {
-                    Some(dir) => {
+                    Ok(dir) => {
                         let folders = &mut self.manifest.settings.game_folders;
                         if folders.contains(&dir) {
                             self.notice = Some((false, "That folder is already in the list.".into()));
                         } else {
+                            // Say which one: a root with several versions picks Retail.
+                            let added = format!("{} game folder added.", detect::label_of(&dir));
                             folders.push(dir);
                             let first = folders.len() == 1;
                             self.save_manifest();
-                            self.notice = Some((false, "Game folder added.".into()));
+                            self.notice = Some((false, added));
                             if first {
                                 self.active_folder = 0;
                                 self.screen = Screen::Library;
@@ -945,13 +959,7 @@ impl App {
                             }
                         }
                     }
-                    None => {
-                        self.notice = Some((
-                            true,
-                            "No Interface\\AddOns found there. Pick the game folder (e.g. _retail_) or its Interface folder."
-                                .into(),
-                        ));
-                    }
+                    Err(e) => self.notice = Some((true, e.to_string())),
                 }
                 Task::none()
             }
