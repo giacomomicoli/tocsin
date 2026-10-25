@@ -24,23 +24,32 @@ pub enum Flavor {
 }
 
 impl Flavor {
-    /// `.toc` file-name suffixes this flavor loads, most specific first.
-    fn suffixes(self) -> &'static [&'static str] {
+    /// What the client answers to, most specific first: its game type, then
+    /// its family. The same names serve as `.toc` file-name suffixes and as
+    /// `[AllowLoadGameType …]` values (warcraft.wiki.gg, "TOC format").
+    ///
+    /// - `_Standard` beats the `_Mainline` family on Retail (12.1.5); WoW
+    ///   Forever is a Mainline client too (`camelot`, alias `forever`, 1.60.1),
+    ///   so ElvUI's `[ExcludeLoadGameType standard, classic]` keeps its line.
+    /// - `_Classic` loads on every Classic client since 4.4.0, after the
+    ///   client's own suffix. One `Classic` flavor covers TBC Anniversary,
+    ///   Titan (Wrath), Cataclysm and Mists, so the build picks which: a TBC
+    ///   client must not take `Addon_Mists.toc` over `Addon_TBC.toc`.
+    /// - No legacy names: `_BCC` stopped loading in 2.5.5, `_WOTLKC` in 3.80.0,
+    ///   and `_Retail` was never a suffix.
+    pub fn game_types(self, interface: Option<u32>) -> &'static [&'static str] {
         match self {
-            Flavor::Retail => &["mainline", "retail", "standard"],
+            Flavor::Retail => &["standard", "mainline"],
+            Flavor::Forever => &["camelot", "forever", "mainline"],
             Flavor::Vanilla => &["vanilla", "classic"],
-            Flavor::Classic => &["cata", "mists", "mop", "wrath", "wotlk", "tbc", "bcc"],
-            Flavor::Forever => &["forever", "camelot", "vanilla", "classic"],
-        }
-    }
-
-    /// Game types for `[AllowLoadGameType …]` conditions inside a `.toc`.
-    pub fn game_types(self) -> &'static [&'static str] {
-        match self {
-            Flavor::Retail => &["standard"],
-            Flavor::Vanilla => &["vanilla", "classic"],
-            Flavor::Classic => &["mists", "cata", "wrath", "tbc", "classic"],
-            Flavor::Forever => &["camelot", "classic"],
+            Flavor::Classic => match interface.map(|code| code / 10000) {
+                Some(2) => &["tbc", "classic"],
+                Some(3) => &["wrath", "classic"],
+                Some(4) => &["cata", "classic"],
+                Some(5) => &["mists", "classic"],
+                // Build unknown: newest progression first, as live today.
+                _ => &["mists", "cata", "wrath", "tbc", "classic"],
+            },
         }
     }
 
@@ -218,9 +227,10 @@ impl InstalledAddon {
         let folder = dir.file_name()?.to_str()?.to_string();
         // One listing serves the .toc pick and every discover heuristic.
         let listing = DirListing::read(dir).ok()?;
-        let picked = pick_toc(&listing, &folder, flavor)?;
+        let game_types = flavor.game_types(client.interface());
+        let picked = pick_toc(&listing, &folder, game_types)?;
         let toc_path = picked.path;
-        let toc = Toc::from_path_for(&toc_path, flavor.game_types()).ok()?;
+        let toc = Toc::from_path_for(&toc_path, game_types).ok()?;
 
         let mut issues = Vec::new();
         // `## Interface` is the deterministic answer; the file-name suffix is
@@ -314,12 +324,20 @@ struct PickedToc {
     misnamed: Option<String>,
 }
 
-/// Choose the `.toc` that matches `flavor`, falling back sensibly.
+/// Every suffix a `.toc` file name may carry, the legacy ones included, so
+/// `Addon_BCC.toc` is still recognised as the addon's file for another game.
+const KNOWN_SUFFIXES: &[&str] = &[
+    "standard", "mainline", "camelot", "forever", "vanilla", "classic", "tbc", "wrath", "cata", "mists",
+    "bcc", "wotlkc", "wotlk", "mop", "retail",
+];
+
+/// Choose the `.toc` the client would load, given its game types (most
+/// specific first, see [`Flavor::game_types`]), falling back sensibly.
 ///
 /// Only regular files count: a `.toc` that is a symlink (or a folder named
 /// `x.toc`) is never read, so it is not a candidate either and the next best
 /// `.toc` wins.
-fn pick_toc(listing: &DirListing, folder: &str, flavor: Flavor) -> Option<PickedToc> {
+fn pick_toc(listing: &DirListing, folder: &str, suffixes: &[&str]) -> Option<PickedToc> {
     let mut candidates: Vec<PathBuf> = listing
         .entries()
         .iter()
@@ -344,13 +362,9 @@ fn pick_toc(listing: &DirListing, folder: &str, flavor: Flavor) -> Option<Picked
             .map(str::to_ascii_lowercase)
             .unwrap_or_default()
     };
-    let all_suffixes: Vec<&str> = [Flavor::Retail, Flavor::Vanilla, Flavor::Classic]
-        .iter()
-        .flat_map(|f| f.suffixes().iter().copied())
-        .collect();
     // "weakauras_cata" → ("weakauras", Some("cata")); "details" → ("details", None)
     let split = |s: &str| -> (String, Option<String>) {
-        for suf in &all_suffixes {
+        for suf in KNOWN_SUFFIXES {
             for sep in ['_', '-'] {
                 if let Some(base) = s.strip_suffix(&format!("{sep}{suf}")) {
                     return (base.to_string(), Some((*suf).to_string()));
@@ -361,7 +375,7 @@ fn pick_toc(listing: &DirListing, folder: &str, flavor: Flavor) -> Option<Picked
     };
 
     // 1) Folder_Suffix.toc / Folder-Suffix.toc for the requested flavor.
-    for suffix in flavor.suffixes() {
+    for suffix in suffixes {
         if let Some(p) = candidates.iter().find(|p| {
             let s = stem(p);
             s == format!("{lower_folder}_{suffix}") || s == format!("{lower_folder}-{suffix}")
@@ -400,7 +414,7 @@ fn pick_toc(listing: &DirListing, folder: &str, flavor: Flavor) -> Option<Picked
                 split(&stem(p))
                     .1
                     .as_deref()
-                    .is_some_and(|x| flavor.suffixes().contains(&x))
+                    .is_some_and(|x| suffixes.contains(&x))
             })
         })
         .or_else(|| candidates.first())?;
@@ -408,7 +422,7 @@ fn pick_toc(listing: &DirListing, folder: &str, flavor: Flavor) -> Option<Picked
     let (base_lower, suffix) = split(&stem(best));
     // Keep the author's casing from the file name.
     let expected = original_stem[..base_lower.len()].to_string();
-    let for_flavor = suffix.is_none() || suffix.as_deref().is_some_and(|x| flavor.suffixes().contains(&x));
+    let for_flavor = suffix.is_none() || suffix.as_deref().is_some_and(|x| suffixes.contains(&x));
     Some(PickedToc {
         path: best.clone(),
         for_flavor,
@@ -533,6 +547,73 @@ mod tests {
         let a = InstalledAddon::from_dir(&dir, Flavor::Classic).unwrap();
         assert_eq!(a.installed.unwrap().as_str(), "1");
         assert!(a.issues.is_empty());
+    }
+
+    fn client(flavor: Flavor, version: (u32, u32, u32)) -> crate::client::GameClient {
+        crate::client::GameClient {
+            flavor,
+            product: None,
+            version: Some(version),
+        }
+    }
+
+    /// An addon folder `Foo` holding one `.toc` per name, each with its own
+    /// `## Version` so the test can tell which one was picked.
+    fn foo_with(tocs: &[&str]) -> (tempfile::TempDir, PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("Foo");
+        std::fs::create_dir(&dir).unwrap();
+        for name in tocs {
+            std::fs::write(dir.join(format!("{name}.toc")), format!("## Version: {name}\n")).unwrap();
+        }
+        (tmp, dir)
+    }
+
+    fn picked(dir: &Path, client: &crate::client::GameClient) -> String {
+        let a = InstalledAddon::from_dir_for(dir, client).unwrap();
+        a.installed.unwrap().as_str().to_string()
+    }
+
+    #[test]
+    fn classic_build_picks_its_own_suffix_before_the_family() {
+        // Questie ships one .toc per Classic game plus the family fallback.
+        let (_tmp, dir) = foo_with(&["Foo_Mists", "Foo_TBC", "Foo_Cata", "Foo_Classic"]);
+        assert_eq!(picked(&dir, &client(Flavor::Classic, (2, 5, 6))), "Foo_TBC");
+        assert_eq!(picked(&dir, &client(Flavor::Classic, (5, 5, 4))), "Foo_Mists");
+        assert_eq!(picked(&dir, &client(Flavor::Classic, (4, 4, 2))), "Foo_Cata");
+        // Titan Reforged (3.80) has no Wrath file here: the family wins.
+        assert_eq!(picked(&dir, &client(Flavor::Classic, (3, 80, 2))), "Foo_Classic");
+        assert_eq!(picked(&dir, &client(Flavor::Vanilla, (1, 15, 9))), "Foo_Classic");
+    }
+
+    #[test]
+    fn classic_family_beats_the_plain_toc() {
+        let (_tmp, dir) = foo_with(&["Foo", "Foo_Classic"]);
+        let a = InstalledAddon::from_dir_for(&dir, &client(Flavor::Classic, (2, 5, 6))).unwrap();
+        assert_eq!(a.installed.unwrap().as_str(), "Foo_Classic");
+        assert!(a.issues.is_empty());
+        assert_eq!(picked(&dir, &client(Flavor::Retail, (12, 1, 5))), "Foo");
+    }
+
+    #[test]
+    fn standard_beats_mainline_and_forever_is_mainline() {
+        let (_tmp, dir) = foo_with(&["Foo_Standard", "Foo_Mainline", "Foo_Vanilla"]);
+        assert_eq!(picked(&dir, &client(Flavor::Retail, (12, 1, 5))), "Foo_Standard");
+        // WoW Forever runs 1.60 but belongs to the Mainline family, not Classic.
+        assert_eq!(picked(&dir, &client(Flavor::Forever, (1, 60, 1))), "Foo_Mainline");
+        let (_tmp, dir) = foo_with(&["Foo_Mainline", "Foo_Camelot"]);
+        assert_eq!(picked(&dir, &client(Flavor::Forever, (1, 60, 1))), "Foo_Camelot");
+    }
+
+    #[test]
+    fn legacy_bcc_toc_no_longer_loads() {
+        // `_BCC` stopped loading in 2.5.5: the file is the addon's, for no current game.
+        let (_tmp, dir) = foo_with(&["Foo_BCC"]);
+        let a = InstalledAddon::from_dir_for(&dir, &client(Flavor::Classic, (2, 5, 6))).unwrap();
+        assert!(a.issues.contains(&Issue::NotForFlavor {
+            flavor: Flavor::Classic
+        }));
+        assert!(a.issues.iter().all(|i| !matches!(i, Issue::Misnamed { .. })));
     }
 
     #[test]

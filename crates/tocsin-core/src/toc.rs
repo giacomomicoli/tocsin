@@ -34,8 +34,9 @@ pub enum TocError {
     Io(#[from] std::io::Error),
 }
 
-/// Game types Retail evaluates `[AllowLoadGameType …]` against.
-pub const RETAIL_GAME_TYPES: &[&str] = &["standard"];
+/// Game types Retail evaluates `[AllowLoadGameType …]` against: its own and
+/// its family (`Flavor::game_types`).
+pub const RETAIL_GAME_TYPES: &[&str] = &["standard", "mainline"];
 
 impl Toc {
     /// Parse `.toc` content as the Retail client would.
@@ -313,6 +314,14 @@ Libs/LibStub/LibStub.lua
         let vanilla = Toc::parse_for(ELVUI, &["vanilla", "classic"]);
         assert_eq!(vanilla.title().as_deref(), Some("ElvUI Classic"));
         assert_eq!(vanilla.get("optionaldeps"), Some("LibHealComm-4.0"));
+
+        // Forever is a Mainline client: "exclude classic" must not drop its line.
+        use crate::addon::Flavor;
+        let forever = Toc::parse_for(ELVUI, Flavor::Forever.game_types(Some(16001)));
+        assert_eq!(forever.title().as_deref(), Some("ElvUI Forever"));
+        assert_eq!(forever.get("optionaldeps"), None);
+        let mists = Toc::parse_for(ELVUI, Flavor::Classic.game_types(Some(50504)));
+        assert_eq!(mists.title().as_deref(), Some("ElvUI Mists"));
 
         // Unconditional lines are untouched, including ones with brackets inside.
         assert_eq!(
