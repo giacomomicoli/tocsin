@@ -68,8 +68,11 @@ profiles (the `WTF` folder) are never modified.
    wouldn't make just for Tocsin.
 3. The first time, Tocsin asks for your game folder. Pick your World of
    Warcraft folder, or `_retail_` (or `_classic_era_`, `_classic_`,
-   `_classic_forever_`) inside it. The `Interface` or `AddOns` folder works
-   too.
+   `_anniversary_`, `_ptr_`, …) inside it. The `Interface` or `AddOns` folder works
+   too, as long as it sits inside the game: an `AddOns` folder anywhere else
+   (another game's, a backup copy) is refused. If the game has never had
+   addons, start it once (it creates `Interface\AddOns`), or create that
+   folder yourself.
 
 From then on you'll see every addon you have, the version you're on, and,
 for the ones Tocsin can ask about, the newest one available.
