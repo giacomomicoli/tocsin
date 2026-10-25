@@ -46,6 +46,16 @@ games (`wow_classic_beta` carried the Mists beta, then WoW Forever 1.60;
 folder name, are fallbacks for a `.build.info` that lacks the row; their
 table reflects what each product carries as of October 2026.
 
+An addon that ships one `.toc` per game is read the way the client reads it
+(warcraft.wiki.gg, "TOC format"): the client's own suffix first, then its
+family, then the plain `Addon.toc`. Retail takes `_Standard`, then
+`_Mainline`. WoW Forever is a Mainline client: `_Camelot` or `_Forever`,
+then `_Mainline`. Every Classic client takes its own suffix (`_Vanilla`,
+`_TBC`, `_Wrath`, `_Cata`, `_Mists`, chosen by the build), then `_Classic`.
+The same names answer `[AllowLoadGameType …]` conditions. The legacy
+`_BCC` and `_WOTLKC` suffixes no longer load in the game, so Tocsin reports
+such a file as meant for another game.
+
 What Tocsin installed is remembered by release, so an author who forgets to
 bump `## Version` in the package cannot make it look stale again.
 
