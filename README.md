@@ -96,7 +96,7 @@ If you use the [GitHub CLI](https://cli.github.com/), you can go one step
 further and check that the file was built from this repository:
 
 ```powershell
-gh attestation verify tocsin-v0.1.0-windows-x64.zip --repo giacomomicoli/tocsin
+gh attestation verify tocsin-v0.1.1-windows-x64.zip --repo giacomomicoli/tocsin
 ```
 
 ## Using it
