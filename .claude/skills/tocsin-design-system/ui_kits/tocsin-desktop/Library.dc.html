@@ -79,6 +79,16 @@ input::placeholder{color:var(--text-3)}
           <span style="flex:1"></span>
           <input value="{{ search }}" onChange="{{ onSearch }}" placeholder="Search…" style="width:240px;box-sizing:border-box;padding:8px;font-family:var(--font-ui);font-size:13px;color:var(--text-1);background:var(--input-bg);border:1px solid var(--input-border);border-radius:3px;outline:none" style-focus="border-color:var(--focus-ring);box-shadow:var(--shadow-glow-gold)">
         </div>
+        <sc-if value="{{ hasDelete }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:2px;border:1px solid color-mix(in srgb, var(--status-update) 60%, transparent);background:color-mix(in srgb, var(--status-update) 8%, transparent)">
+            <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+              <span style="font-family:var(--font-display);font-weight:600;font-size:14px;color:var(--status-update)">{{ deleteTitle }}</span>
+              <span style="font-size:13px;color:var(--text-1)">{{ deleteBody }}</span>
+            </div>
+            <button onClick="{{ cancelDelete }}" style="padding:5px 10px;font-size:12px;line-height:1.3;border:1px solid var(--btn-ghost-border);border-radius:3px;background:transparent;color:var(--btn-ghost-text);font-family:var(--font-ui);font-weight:500;cursor:pointer;white-space:nowrap;flex:none" style-hover="background:var(--btn-ghost-bg-hover)">Cancel</button>
+            <button onClick="{{ confirmDelete }}" style="padding:5px 10px;font-size:12px;line-height:1.3;border:1px solid color-mix(in srgb, var(--status-error) 55%, transparent);border-radius:3px;background:transparent;color:var(--status-error);font-family:var(--font-ui);font-weight:500;cursor:pointer;white-space:nowrap;flex:none" style-hover="background:color-mix(in srgb, var(--status-error) 16%, transparent)">Delete</button>
+          </div>
+        </sc-if>
 
         <div style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:6px;scrollbar-width:thin;scrollbar-color:var(--border-control) transparent">
           <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
@@ -356,7 +366,7 @@ class Component extends DCLogic {
         fams: clone(CLASSIC), removed: [] },
     ],
     active: 0, filter: 'all', search: '', screen: this.props.startScreen ?? 'library', busy: false, installing: null,
-    catalog: 'idle', dQuery: 'boss', dSearched: 'boss', dSearching: false, dInstalling: null, confirm: null, tick: 0,
+    catalog: 'idle', dQuery: 'boss', dSearched: 'boss', dSearching: false, dInstalling: null, confirm: null, delConfirm: null, tick: 0,
     keys: { curseforge: 'notset', github: 'notset' }, form: { curseforge: '', github: '' }, saving: false,
     notice: { err: false, text: 'Checked 14 addons · 2 updates · 4 need attention.' },
   };
@@ -456,6 +466,11 @@ class Component extends DCLogic {
     this.patchCur(g => ({ ...g, removed: g.removed.filter(x => x.key !== r.key), fams: [...g.fams, r.fam] }));
     this.setState({ notice: { err: false, text: `${r.fam.name} restored.` } });
   }
+  // Delete for good: a disabled family or a removed one, after the confirm banner.
+  deleteForGood(d) {
+    this.patchCur(g => ({ ...g, fams: g.fams.filter(x => x.folder !== d.key), removed: g.removed.filter(x => x.key !== d.key) }));
+    this.setState({ delConfirm: null, notice: { err: false, text: `Deleted ${d.name}.` } });
+  }
   installMissing(f, dep) {
     this.work(() => {
       this.setFam(f.folder, x => ({ ...x, missing: [], members: [...x.members, { folder: dep, name: dep, src: x.src, inst: '1.1.6', latest: '1.1.6', st: 'ok' }] }));
@@ -507,6 +522,7 @@ class Component extends DCLogic {
         ? this.btn('Enable', 'ghost', () => this.setFam(a.folder, x => ({ ...x, disabled: false })))
         : this.btn('Disable', 'ghost', () => this.setFam(a.folder, x => ({ ...x, disabled: true }))));
       actions.push(this.btn('Remove', 'danger', () => this.remove(a)));
+      if (disabled) actions.push(this.btn('Delete', 'danger', () => this.setState({ delConfirm: { key: a.folder, name: a.name } })));
     }
     const notes = (a.notes || []).map(n => ({ text: n.t, color: n.c === 'error' ? V('error') : n.c === 'warn' ? V('update') : 'var(--text-3)' }));
     return {
@@ -548,7 +564,8 @@ class Component extends DCLogic {
     if (st.filter === 'all' && !q) g.removed.forEach(r => rows.push({
       key: 'rm-' + r.key, nested: false, indent: '0px', pad: '10px 14px', bg: mix('var(--surface-row)', 40), border: 'var(--border-row)', fg: 'var(--text-3)',
       name: r.key, nameSize: '14px', meta: `removed · ${r.version} kept until the next change`, metaColor: 'var(--text-3)', notes: [],
-      showVersions: false, showBadge: false, actions: [this.btn('Restore', 'ghost', () => this.restore(r))] }));
+      showVersions: false, showBadge: false, actions: [this.btn('Restore', 'ghost', () => this.restore(r)),
+        this.btn('Delete', 'danger', () => this.setState({ delConfirm: { key: r.key, name: r.key } }))] }));
     rows.forEach(r => {
       const small = r.nested || r.key.startsWith('rm-');
       r.iconSize = small ? '24px' : '32px';
@@ -607,6 +624,11 @@ class Component extends DCLogic {
       catalogLoading: st.catalog === 'loading', catalogReady: st.catalog === 'ready',
       dots: [0, 1, 2].map(i => ({ bg: i === lit ? 'var(--accent)' : 'var(--border-control)' })),
       needsCfKey: !cfKey, goSettings: go('settings'),
+      hasDelete: !!st.delConfirm,
+      deleteTitle: st.delConfirm ? `Delete ${st.delConfirm.name}?` : '',
+      deleteBody: st.delConfirm ? `${st.delConfirm.name} and its kept copy are deleted from AddOns. This cannot be undone; its saved settings stay, so reinstalling it picks them back up.` : '',
+      cancelDelete: () => this.setState({ delConfirm: null }),
+      confirmDelete: () => st.delConfirm && !st.busy && this.deleteForGood(st.delConfirm),
       hasConfirm: !!st.confirm,
       confirmTitle: st.confirm ? `Replace ${st.confirm.r.conflicts.length} folders?` : '',
       confirmBody: st.confirm ? `${st.confirm.r.name} from ${st.confirm.src} replaces ${st.confirm.r.conflicts.length} folders already in AddOns: ${st.confirm.r.conflicts.join(', ')}. They go to the backup; Rollback restores them.` : '',

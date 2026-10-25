@@ -37,13 +37,35 @@ impl App {
         ]
         .spacing(14)
         .align_y(Alignment::Center);
-        column![
+        let mut page = column![
             widgets::page_head("Installed Addons", subtitle, Some(actions.into())),
             self.toolbar(),
-            self.list(),
         ]
-        .spacing(space::PAGE_GAP)
-        .into()
+        .spacing(space::PAGE_GAP);
+        if let Some(key) = &self.confirm_delete {
+            page = page.push(self.delete_banner(key));
+        }
+        page.push(self.list()).into()
+    }
+
+    /// "Delete X?": nothing comes back after this, so the user is asked.
+    fn delete_banner<'a>(&'a self, key: &'a str) -> Element<'a, Message> {
+        let name = self
+            .addons
+            .iter()
+            .find(|a| a.folder == key)
+            .map_or(key, |a| a.display_name.as_str());
+        let body = format!(
+            "{name} and its kept copy are deleted from AddOns. This cannot be undone; \
+             its saved settings stay, so reinstalling it picks them back up."
+        );
+        let actions = row![
+            widgets::ghost("Cancel", size::META, space::BTN_SM).on_press(Message::CancelDelete),
+            widgets::danger("Delete", size::META, space::BTN_SM)
+                .on_press_maybe((!self.busy).then_some(Message::ConfirmDelete)),
+        ]
+        .spacing(10);
+        widgets::confirm_banner(format!("Delete {name}?"), body, actions)
     }
 
     fn toolbar(&self) -> Element<'_, Message> {
@@ -155,8 +177,13 @@ impl App {
             row![
                 icon_slot(monogram(key), true, true, None),
                 name_col.width(Fill),
-                widgets::ghost("Restore", size::META, space::BTN_SM)
-                    .on_press_maybe((!self.busy).then(|| Message::Rollback(key.to_string()))),
+                row![
+                    widgets::ghost("Restore", size::META, space::BTN_SM)
+                        .on_press_maybe((!self.busy).then(|| Message::Rollback(key.to_string()))),
+                    widgets::danger("Delete", size::META, space::BTN_SM)
+                        .on_press_maybe((!self.busy).then(|| Message::Delete(key.to_string()))),
+                ]
+                .spacing(8),
             ]
             .spacing(14)
             .align_y(Alignment::Center),
@@ -349,6 +376,13 @@ impl App {
             let remove = widgets::danger("Remove", size::META, space::BTN_SM)
                 .on_press_maybe((!self.busy).then(|| Message::Remove(a.folder.clone())));
             actions = actions.push(toggle).push(remove);
+            // Out of the game's sight already: offer to be rid of it for good.
+            if a.disabled {
+                actions = actions.push(
+                    widgets::danger("Delete", size::META, space::BTN_SM)
+                        .on_press_maybe((!self.busy).then(|| Message::Delete(a.folder.clone()))),
+                );
+            }
         }
 
         let mut r = row![].spacing(14).align_y(Alignment::Center);

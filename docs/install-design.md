@@ -157,6 +157,14 @@ Remove is "make it the previous generation": folders go to the backup, the
 record's current generation is empty, Rollback restores. One generation, as
 everywhere else.
 
+Delete (`install::purge`) is the only way out of that state that destroys
+data, and only from it: a disabled family is removed first (`install::delete`
+is remove + purge). The kept copy is renamed into `.tocsin-staging/`, the log
+drops the record, then the copy is deleted. A failure before the log is saved
+renames it back; one while deleting leaves a staging leftover, which start-up
+cleans. If the purge fails after a remove, the family simply stays removed,
+with Restore.
+
 ### 9. Fresh installs from search
 
 The download and the swap are two steps. After the download, the zip's

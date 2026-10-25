@@ -70,6 +70,9 @@ pub enum InstallError {
     /// a file: following it could reach outside `AddOns`.
     #[error("{0} is a link or not a folder; Tocsin will not touch it")]
     UnsafeDir(String),
+    /// Only a removed family can be deleted for good.
+    #[error("only a removed addon can be deleted")]
+    NotRemoved,
     /// Disk failure.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -1113,6 +1116,28 @@ current = {{ version = "1", folders = ["C:evil"] }}
         }
     }
 
+    #[test]
+    fn purge_refuses_a_linked_copy_and_leaves_outside_alone() {
+        let (_tmp, addons, outside) = game_with_outside();
+        if !link_dir(&outside, &addons.join(BACKUP_DIR).join("WA@1")) {
+            eprintln!("cannot create a directory link here; skipped");
+            return;
+        }
+        write_log(
+            &addons,
+            r#"
+[installs.WA]
+provider = "local"
+installed_at = 1
+current = { version = "removed", folders = [] }
+previous = { version = "1", folders = ["WA"], backup = ".tocsin-backup/WA@1" }
+"#,
+        );
+        assert!(matches!(purge(&addons, "WA"), Err(InstallError::UnsafeDir(_))));
+        assert_eq!(removed(&addons).len(), 1, "the record stays");
+        outside_is_untouched(&outside);
+    }
+
     fn outside_is_untouched(outside: &Path) {
         let names: Vec<_> = std::fs::read_dir(outside)
             .unwrap()
@@ -1363,9 +1388,72 @@ pub fn removed(addons_dir: &Path) -> Vec<(String, String)> {
 pub fn removed_in(log: &Log) -> Vec<(String, String)> {
     log.installs
         .iter()
-        .filter(|(_, r)| r.current.version == "removed" && r.current.folders.is_empty())
+        .filter(|(_, r)| is_removed(r))
         .filter_map(|(k, r)| r.previous.as_ref().map(|p| (k.clone(), p.version.clone())))
         .collect()
+}
+
+/// A record [`remove`] wrote: nothing in place, the folders in the backup.
+fn is_removed(r: &Record) -> bool {
+    r.current.version == "removed" && r.current.folders.is_empty()
+}
+
+/// Delete a removed family for good: its kept copy and its record go, and
+/// Restore is no longer offered. Only a family [`remove`] took away is
+/// accepted, so nothing in the game's sight is ever deleted from here.
+/// `SavedVariables` in `WTF` are left alone, as always.
+///
+/// The copy is first renamed into `.tocsin-staging` (atomic), then the log
+/// forgets it, then it is deleted: a failure before the log is saved puts
+/// it back, and one while deleting leaves a leftover that start-up cleans.
+pub fn purge(addons_dir: &Path, key: &str) -> Result<(), InstallError> {
+    let mut log = Log::load(addons_dir)?;
+    let backup_rel = match log.installs.get(key) {
+        Some(r) if is_removed(r) => r.previous.as_ref().and_then(|p| p.backup.clone()),
+        _ => return Err(InstallError::NotRemoved),
+    };
+    // `Log::load` refused a linked `.tocsin-backup` and any backup outside
+    // it; the copy itself must still be a real folder, never a link.
+    let doomed = match backup_rel {
+        Some(b) if movable(&addons_dir.join(&b))? => {
+            let staging = own_dir(addons_dir, STAGING_DIR)?;
+            std::fs::create_dir_all(&staging)?;
+            let trash = staging.join(format!("purge-{}-{}", safe_name(key), now()));
+            let from = addons_dir.join(&b);
+            std::fs::rename(&from, &trash)?;
+            Some((from, trash))
+        }
+        _ => None,
+    };
+    log.installs.remove(key);
+    if let Err(e) = log.save(addons_dir) {
+        if let Some((from, trash)) = &doomed {
+            let _ = std::fs::rename(trash, from);
+        }
+        return Err(e);
+    }
+    // `remove_dir_all` deletes a link found inside the copy, never what it
+    // points to.
+    if let Some((_, trash)) = doomed {
+        if let Err(e) = std::fs::remove_dir_all(&trash) {
+            tracing::warn!("delete {key}: {e}; start-up will clean it");
+        }
+    }
+    Ok(())
+}
+
+/// [`remove`] then [`purge`]: the family leaves `AddOns` (or
+/// `.tocsin-disabled`) and is deleted at once. Returns the folders deleted.
+/// If the purge fails the family stays removed, and Restore still works.
+pub fn delete(
+    addons_dir: &Path,
+    key: &str,
+    folders: &[String],
+    version: Option<&str>,
+) -> Result<Vec<String>, InstallError> {
+    let removed = remove(addons_dir, key, folders, version)?;
+    purge(addons_dir, key)?;
+    Ok(removed.replaced)
 }
 
 /// Folders that can roll back, from a loaded log: every folder of a release
@@ -1432,6 +1520,65 @@ mod toggle_tests {
         assert_eq!(o.installed, vec!["WA", "WA_Opt"]);
         assert!(addons.join("WA/WA.toc").is_file());
         assert!(addons.join("WA_Opt/WA_Opt.toc").is_file());
+        assert!(removed(&addons).is_empty());
+    }
+
+    #[test]
+    fn purge_deletes_the_kept_copy_and_forgets_the_family() {
+        let tmp = tempfile::tempdir().unwrap();
+        let addons = tmp.path().join("AddOns");
+        addon(&addons, "WA");
+        addon(&addons, "Other");
+        remove(&addons, "WA", &["WA".into()], Some("5.22.1")).unwrap();
+        let backup = addons.join(BACKUP_DIR).join("WA@5.22.1");
+        assert!(backup.join("WA/WA.toc").is_file());
+
+        purge(&addons, "WA").unwrap();
+        assert!(!backup.exists());
+        assert!(removed(&addons).is_empty());
+        assert!(matches!(rollback(&addons, "WA"), Err(InstallError::NoBackup)));
+        assert!(addons.join("Other/Other.toc").is_file());
+        // Nothing left behind in staging, and a second purge is refused.
+        let staged = std::fs::read_dir(addons.join(STAGING_DIR)).map_or(0, |d| d.count());
+        assert_eq!(staged, 0);
+        assert!(matches!(purge(&addons, "WA"), Err(InstallError::NotRemoved)));
+    }
+
+    #[test]
+    fn purge_refuses_a_family_that_is_not_removed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let addons = tmp.path().join("AddOns");
+        addon(&addons, "WA");
+        disable(&addons, &["WA".to_string()]).unwrap();
+        assert!(matches!(purge(&addons, "WA"), Err(InstallError::NotRemoved)));
+        assert!(addons.join(DISABLED_DIR).join("WA/WA.toc").is_file());
+    }
+
+    #[test]
+    fn purge_of_a_removed_family_whose_copy_is_gone_forgets_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let addons = tmp.path().join("AddOns");
+        addon(&addons, "WA");
+        remove(&addons, "WA", &["WA".into()], Some("1")).unwrap();
+        std::fs::remove_dir_all(addons.join(BACKUP_DIR).join("WA@1")).unwrap();
+        purge(&addons, "WA").unwrap();
+        assert!(removed(&addons).is_empty());
+    }
+
+    #[test]
+    fn delete_takes_a_disabled_family_away_for_good() {
+        let tmp = tempfile::tempdir().unwrap();
+        let addons = tmp.path().join("AddOns");
+        addon(&addons, "WA");
+        addon(&addons, "WA_Opt");
+        let family = vec!["WA".to_string(), "WA_Opt".to_string()];
+        disable(&addons, &family).unwrap();
+
+        let gone = delete(&addons, "WA", &family, Some("5.22.1")).unwrap();
+        assert_eq!(gone, family);
+        assert!(!addons.join(DISABLED_DIR).join("WA").exists());
+        assert!(!addons.join(DISABLED_DIR).join("WA_Opt").exists());
+        assert!(!addons.join(BACKUP_DIR).join("WA@5.22.1").exists());
         assert!(removed(&addons).is_empty());
     }
 

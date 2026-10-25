@@ -147,6 +147,10 @@ the list with a **Restore** button until you change that addon again. Its
 saved settings stay where they are, so reinstalling it later picks them back
 up.
 
+**Delete** gets rid of an addon for good. It is offered on a disabled addon
+and on a removed one, and asks first: the files and the kept copy are
+deleted and cannot be restored. Its saved settings stay, as with Remove.
+
 ### Getting new addons
 
 **Get addons** searches CurseForge, WoWInterface, GitHub and Tukui at the same

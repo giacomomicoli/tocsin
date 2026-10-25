@@ -14,7 +14,7 @@ export function ConfirmBanner({ title, children, actions }) {
   return (
     <div
       style={{
-        padding: "var(--pad-row)",
+        padding: "var(--pad-confirm)",
         borderRadius: "var(--r-1)",
         border: "1px solid color-mix(in srgb, var(--status-update) 60%, transparent)",
         background: "color-mix(in srgb, var(--status-update) 8%, transparent)",
