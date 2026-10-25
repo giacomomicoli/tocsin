@@ -35,7 +35,9 @@ jobs:
           Copy-Item crates/tocsin/assets/fonts/OFL-*.txt "$name/licenses/"
           Copy-Item THIRD-PARTY-LICENSES.html "$name/licenses/"
           Compress-Archive -Path $name -DestinationPath "$name.zip"
-          (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File -Encoding ascii SHA256SUMS.txt
+          # LF, not Out-File's CRLF: `sha256sum -c` reads a trailing CR as part of the file name.
+          $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Path SHA256SUMS.txt -Value "$hash  $name.zip`n" -NoNewline -Encoding ascii
           "ZIP=$name.zip" | Out-File -Encoding ascii -Append $env:GITHUB_ENV
           "EXE=$name/tocsin.exe" | Out-File -Encoding ascii -Append $env:GITHUB_ENV
       # Proves the zip and the exe inside it were built by this workflow from
