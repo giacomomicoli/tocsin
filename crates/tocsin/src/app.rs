@@ -219,6 +219,9 @@ pub struct App {
     rollbackable: BTreeSet<String>,
     /// Families removed by Tocsin that can be restored: (key, version).
     removed: Vec<(String, String)>,
+    /// Family (head folder, or removed key) the user asked to delete for
+    /// good; the confirm banner shows until they answer.
+    confirm_delete: Option<String>,
     /// Folder currently being updated, for the row's spinner text.
     installing: Option<String>,
     statuses: BTreeMap<String, UpdateStatus>,
@@ -295,6 +298,14 @@ pub enum Message {
     Enable(String),
     /// Move the family to the backup; Rollback (shown as Restore) undoes it.
     Remove(String),
+    /// Ask before deleting a disabled or removed family for good.
+    Delete(String),
+    /// The user confirms the pending delete.
+    ConfirmDelete,
+    /// The user keeps the family.
+    CancelDelete,
+    /// A delete finished: (name, result).
+    Deleted(String, Result<(), String>),
     /// An update or rollback finished: (folder, result).
     Installed(String, Result<Vec<String>, String>),
     // discover
@@ -375,6 +386,7 @@ impl App {
             missing: BTreeMap::new(),
             rollbackable: BTreeSet::new(),
             removed: Vec::new(),
+            confirm_delete: None,
             installing: None,
             statuses: BTreeMap::new(),
             counts: Counts::default(),
@@ -708,6 +720,67 @@ impl App {
                     },
                     move |r| Message::Installed(done.clone(), r),
                 )
+            }
+            Message::Delete(key) => {
+                self.confirm_delete = Some(key);
+                Task::none()
+            }
+            Message::CancelDelete => {
+                self.confirm_delete = None;
+                Task::none()
+            }
+            Message::ConfirmDelete => {
+                let (Some(key), Some(dir)) = (self.confirm_delete.take(), self.active_dir().cloned()) else {
+                    return Task::none();
+                };
+                if self.busy {
+                    self.confirm_delete = Some(key);
+                    return Task::none();
+                }
+                // A removed family has only its kept copy left; a disabled one
+                // is removed first, then deleted the same way.
+                let removed = self.removed.iter().any(|(k, _)| *k == key);
+                let folders = self.family_folders(&key);
+                let version = self
+                    .addons
+                    .iter()
+                    .find(|a| a.folder == key)
+                    .and_then(|a| a.installed.as_ref().map(|v| v.as_str().to_string()));
+                self.busy = true;
+                self.installing = Some(key.clone());
+                let done = key.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            if removed {
+                                tocsin_core::install::purge(&dir, &key)
+                            } else {
+                                tocsin_core::install::delete(&dir, &key, &folders, version.as_deref())
+                                    .map(|_| ())
+                            }
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(tocsin_core::install::InstallError::Log(e.to_string())))
+                        .map_err(|e| e.to_string())
+                    },
+                    move |r| Message::Deleted(done.clone(), r),
+                )
+            }
+            Message::Deleted(key, result) => {
+                self.busy = false;
+                self.installing = None;
+                match result {
+                    Ok(()) => {
+                        self.notice = Some((false, format!("Deleted {key}. Rescanning…")));
+                        // Nothing left to check: the family is gone.
+                        self.recheck = Some(Vec::new());
+                        self.update(Message::Scan)
+                    }
+                    Err(e) => {
+                        self.notice = Some((true, format!("{key}: {e}")));
+                        Task::none()
+                    }
+                }
             }
             Message::Rollback(key) => {
                 let Some(dir) = self.active_dir().cloned() else {
@@ -1364,6 +1437,7 @@ impl App {
         self.missing.clear();
         self.statuses.clear();
         self.library_icons.clear();
+        self.confirm_delete = None;
         for batch in std::mem::take(&mut self.library_batches) {
             cancel_icons(&mut self.icons, batch);
         }

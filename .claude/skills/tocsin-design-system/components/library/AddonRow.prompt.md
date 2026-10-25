@@ -9,3 +9,5 @@ The library's addon row — use for every line in the installed list, including 
 ```
 
 Columns: name (fill) · versions 120px right-aligned mono · badge 150px right-aligned · actions. Children get no Disable/Remove (they follow the head).
+
+A disabled head adds a danger **Delete** after Remove (Open · Enable · Remove · Delete); a removed row shows ghost **Restore** then danger **Delete**. Delete never acts at once: it raises the ConfirmBanner (`feedback/Notice`) above the list.

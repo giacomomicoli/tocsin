@@ -102,27 +102,13 @@ impl App {
             p.source.provider(),
             ellipsize(&p.prepared.conflicts.join(", "), 300),
         );
-        container(
-            row![
-                column![
-                    text(format!("Replace {what}?"))
-                        .size(size::CHILD)
-                        .font(theme::DISPLAY)
-                        .style(theme::tone(Tone::Update)),
-                    text(body).size(size::CONTROL).style(theme::body),
-                ]
-                .spacing(2)
-                .width(Fill),
-                widgets::ghost("Cancel", size::META, theme::space::BTN_SM).on_press(Message::CancelInstall),
-                widgets::danger("Replace", size::META, theme::space::BTN_SM)
-                    .on_press_maybe((!self.busy).then_some(Message::ConfirmInstall)),
-            ]
-            .spacing(10)
-            .align_y(Alignment::Center),
-        )
-        .padding([12, 16])
-        .style(theme::confirm)
-        .into()
+        let actions = row![
+            widgets::ghost("Cancel", size::META, theme::space::BTN_SM).on_press(Message::CancelInstall),
+            widgets::danger("Replace", size::META, theme::space::BTN_SM)
+                .on_press_maybe((!self.busy).then_some(Message::ConfirmInstall)),
+        ]
+        .spacing(10);
+        widgets::confirm_banner(format!("Replace {what}?"), body, actions)
     }
 
     /// One line on the WoWInterface catalog: loading, ready, or failed with a

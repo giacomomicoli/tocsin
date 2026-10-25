@@ -17,6 +17,7 @@
   --pad-btn-md: 8px 14px;      /* space::BTN_MD */
   --pad-chip: 6px 12px;        /* space::CHIP */
   --pad-badge: 3px 8px;        /* space::BADGE */
+  --pad-confirm: 12px 16px;    /* space::CONFIRM_PAD */
   --pad-row: 12px 14px;        /* space::ROW_PAD */
   --pad-row-child: 10px 14px;  /* space::ROW_CHILD_PAD */
   --pad-frame: 16px 18px;      /* gilded frame, inner container */

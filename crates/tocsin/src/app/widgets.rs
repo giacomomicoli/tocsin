@@ -161,6 +161,34 @@ pub(super) fn danger<'a>(label: impl Into<String>, size: f32, pad: [u16; 2]) -> 
         .style(theme::danger)
 }
 
+/// The confirm banner: a question that blocks a destructive action, what
+/// will happen, and the answers (`actions`, the destructive one last).
+pub(super) fn confirm_banner<'a>(
+    title: String,
+    body: String,
+    actions: impl Into<Element<'a, Message>>,
+) -> Element<'a, Message> {
+    container(
+        row![
+            column![
+                text(title)
+                    .size(size::CHILD)
+                    .font(theme::DISPLAY)
+                    .style(theme::tone(Tone::Update)),
+                text(body).size(size::CONTROL).style(theme::body),
+            ]
+            .spacing(2)
+            .width(Fill),
+            actions.into(),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center),
+    )
+    .padding(theme::space::CONFIRM_PAD)
+    .style(theme::confirm)
+    .into()
+}
+
 /// A filter chip or theme choice: selected (display font) or ghost.
 pub(super) fn chip<'a>(label: impl Into<String>, active: bool) -> Button<'a, Message> {
     let font = if active { theme::DISPLAY } else { theme::UI_MEDIUM };

@@ -71,6 +71,7 @@ pub mod space {
     pub const BTN_MD: [u16; 2] = [8, 14];
     pub const CHIP: [u16; 2] = [6, 12];
     pub const BADGE: [u16; 2] = [3, 8];
+    pub const CONFIRM_PAD: [u16; 2] = [12, 16];
     pub const ICON_HEAD: f32 = 32.0;
     pub const ICON_CHILD: f32 = 24.0;
     pub const VERSIONS_W: f32 = 120.0;

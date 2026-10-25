@@ -156,6 +156,14 @@ that way:
   moved and deleted, so it is not trusted blindly: it is size-capped, and a
   record naming anything but plain folder names and its own backup folder is
   dropped on load.
+- Delete is the one permanent deletion of addon files the user asks for. It
+  accepts only a family the log records as removed, so it never reaches a
+  folder in the game's sight: a disabled addon is first removed (moved to the
+  backup), then its kept copy is renamed into `.tocsin-staging` and deleted
+  after the log forgets it. The copy must be a real folder, not a link, and
+  `remove_dir_all` deletes a link found inside it, never what it points to.
+  Nothing is written outside the dot-folders it already used, and `WTF` is
+  not touched.
 - Redirects are checked before they are followed: an API request stays on
   the host it was sent to, and a download may only hop between the
   providers' own hosts (GitHub → its asset CDN, say), over HTTPS, three hops
