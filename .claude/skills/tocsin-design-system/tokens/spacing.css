@@ -17,6 +17,8 @@
   --pad-btn-md: 8px 14px;      /* space::BTN_MD */
   --pad-chip: 6px 12px;        /* space::CHIP */
   --pad-badge: 3px 8px;        /* space::BADGE */
+  --pad-help: 2px 7px;         /* space::HELP */
+  --pad-tip: 8px 10px;         /* space::TIP_PAD */
   --pad-confirm: 12px 16px;    /* space::CONFIRM_PAD */
   --pad-row: 12px 14px;        /* space::ROW_PAD */
   --pad-row-child: 10px 14px;  /* space::ROW_CHILD_PAD */

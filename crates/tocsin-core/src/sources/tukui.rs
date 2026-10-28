@@ -101,6 +101,7 @@ fn matching(all: Vec<Listed>, query: &str) -> Vec<Hit> {
             updated: year_of_iso(a.last_update.as_deref()),
             folders: a.directories,
             icon: None,
+            site_only: false,
         })
         .collect()
 }

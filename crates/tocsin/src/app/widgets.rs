@@ -189,6 +189,24 @@ pub(super) fn confirm_banner<'a>(
     .into()
 }
 
+/// The "?" beside a badge whose reason is not obvious; `on_press` opens or
+/// closes its [`tip`].
+pub(super) fn help<'a>(open: bool, on_press: Message) -> Button<'a, Message> {
+    labelled("?".into(), size::XS, theme::DISPLAY)
+        .padding(theme::space::HELP)
+        .style(theme::help(open))
+        .on_press(on_press)
+}
+
+/// What a [`help`] button explains, in a box under the line it belongs to.
+pub(super) fn tip<'a>(body: &'a str) -> Element<'a, Message> {
+    container(text(body).size(size::META))
+        .padding(theme::space::TIP_PAD)
+        .width(Fill)
+        .style(theme::tip)
+        .into()
+}
+
 /// A filter chip or theme choice: selected (display font) or ghost.
 pub(super) fn chip<'a>(label: impl Into<String>, active: bool) -> Button<'a, Message> {
     let font = if active { theme::DISPLAY } else { theme::UI_MEDIUM };

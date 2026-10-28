@@ -72,6 +72,20 @@ struct SearchMod {
     /// The project logo (`ModAsset`); `null` for projects without one.
     #[serde(default)]
     logo: Option<Logo>,
+    /// `false` when the author keeps files off third-party apps: every
+    /// `downloadUrl` is then `null`, though the website still serves them.
+    /// `null` or absent on older projects, which do allow it.
+    #[serde(default, rename = "allowModDistribution")]
+    allow_distribution: Option<bool>,
+}
+
+impl SearchMod {
+    /// Whether only the website hands out its files: *Azta'rec Helper*
+    /// (all rights reserved) answers `allowModDistribution: false`, and
+    /// Install could only fail with "no download link".
+    fn site_only(&self) -> bool {
+        self.allow_distribution == Some(false)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -165,6 +179,7 @@ pub async fn search(http: &Http, key: &str, query: &str, flavor: Flavor) -> Resu
         .into_iter()
         .filter(|m| serves(m.indexes.iter().map(|i| i.game_version.as_str()), flavor))
         .map(|m| Hit {
+            site_only: m.site_only(),
             source: super::SourceRef::CurseForge { id: m.id },
             url: m
                 .links
@@ -351,6 +366,20 @@ mod tests {
         );
         assert_eq!(thumb(&env.data[1]), None);
         assert_eq!(thumb(&env.data[2]), None);
+    }
+
+    #[test]
+    fn projects_kept_off_apps_are_site_only() {
+        // Azta'rec Helper's shape: all rights reserved, no file for apps.
+        let json = r#"{"data":[
+          {"id":1613242,"name":"Azta'rec Helper - Semi-Auto Boss Mod","allowModDistribution":false,
+           "latestFiles":[{"displayName":"1.4.2","downloadUrl":null}]},
+          {"id":61284,"name":"Details! Damage Meter","allowModDistribution":true},
+          {"id":3358,"name":"DBM","allowModDistribution":null},
+          {"id":8}]}"#;
+        let env: SearchEnvelope = serde_json::from_str(json).unwrap();
+        let site_only: Vec<bool> = env.data.iter().map(SearchMod::site_only).collect();
+        assert_eq!(site_only, [true, false, false, false]);
     }
 
     #[test]

@@ -163,6 +163,15 @@ Tocsin remembers where you installed an addon from and keeps checking there.
 Addons you already have are marked *Installed*. Search runs when you press
 Enter.
 
+> [!NOTE]
+> Some sites can't be installed from in Tocsin, and those lines say
+> *Site only* instead of showing **Install**. Click the **?** next to it to
+> see why. On CurseForge, some authors only allow downloads from the
+> CurseForge website, and search shows this up front. A GitHub project may
+> have no releases to download, and Tocsin only finds that out the first time
+> you try. Either way, use *Open* and install it by hand, or pick another
+> site if one is listed.
+
 If an addon you're installing brings along folders you already have (shared
 libraries like `Ace3`), Tocsin tells you which and asks before replacing
 them.

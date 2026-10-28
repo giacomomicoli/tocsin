@@ -191,6 +191,7 @@ impl Entry {
             folders: self.folders.clone(),
             updated: self.year,
             icon: self.thumb.clone(),
+            site_only: false,
         }
     }
 }

@@ -4,8 +4,9 @@
 use iced::widget::{column, container, row, space, text, text_input, Column};
 use iced::{Alignment, Element, Fill, Length};
 
-use tocsin_core::search::Found;
+use tocsin_core::search::{Found, Hit};
 use tocsin_core::secrets::Secret;
+use tocsin_core::SourceRef;
 
 use super::widgets::{self, badge, icon_slot, monogram};
 use super::{App, CatalogState, Message, PendingInstall, Screen};
@@ -209,7 +210,14 @@ impl App {
             ]
             .spacing(10)
             .align_y(Alignment::Center);
-            if !installed {
+            let site_only = !installed && (h.site_only || self.discover.site_only.contains(&h.source));
+            let tip_open = site_only && self.discover.tip.as_ref() == Some(&h.source);
+            if site_only {
+                // Nothing to download for an app: Open, beside it, is the way.
+                line = line
+                    .push(badge("Site only", Tone::Manual))
+                    .push(widgets::help(tip_open, Message::ToggleTip(h.source.clone())));
+            } else if !installed {
                 let running = self.discover.installing.as_ref() == Some(&h.source);
                 line = line.push(
                     widgets::primary(
@@ -223,6 +231,9 @@ impl App {
                 );
             }
             sources = sources.push(line);
+            if tip_open {
+                sources = sources.push(widgets::tip(site_only_reason(h)));
+            }
         }
 
         // The picture once it has arrived; the monogram meanwhile, or for good.
@@ -239,6 +250,27 @@ impl App {
         .padding(theme::space::ROW_PAD)
         .style(theme::row)
         .into()
+    }
+}
+
+/// Why a line says "Site only", for its "?": the search answer flagged it
+/// (a CurseForge author's choice), or an install found nothing to fetch.
+fn site_only_reason(h: &Hit) -> &'static str {
+    match h.source {
+        _ if h.site_only => {
+            "The author lets CurseForge hand the files out only on its website and in its own app, so \
+             Tocsin gets no download link. Open the page, download the zip and unzip it into AddOns, or \
+             pick another site if one is listed."
+        }
+        SourceRef::Github { .. } => {
+            "This repository has no release to download, only its source code. Tocsin found out when you \
+             pressed Install, and remembers it until it closes. Open the page to see how the author \
+             expects it to be installed, or pick another site if one is listed."
+        }
+        _ => {
+            "This site gave no file to download for it. Open the page and install it by hand, or pick \
+             another site if one is listed."
+        }
     }
 }
 
