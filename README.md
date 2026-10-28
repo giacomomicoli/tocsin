@@ -194,8 +194,36 @@ who have a personal key. It's free and takes a couple of minutes:
 Without it, Tocsin still finds a good share of your addons through the other
 sites. The ones it can't will say *API key needed*.
 
-You can also add a GitHub token there. You don't need one, it just lets
-Tocsin ask GitHub more often.
+## GitHub token (optional)
+
+GitHub answers anyone, up to a point: without a token it allows 60 questions
+an hour from your connection, and 10 searches a minute. Each check asks once
+per addon that comes from GitHub, so a dozen of them and a few checks an hour
+are fine. You'll want a token if:
+
+- many of your addons come from GitHub, or you press *Check updates* often;
+- you're on a VPN or a shared network, where the 60 are shared with
+  strangers;
+- Tocsin says GitHub is answering *too many searches, try again in a minute*,
+  or GitHub addons show an error after a few checks.
+
+With a token the limit goes up to 5,000 an hour. The token only proves
+you're you: Tocsin reads public pages with it and nothing else. To get one:
+
+1. Go to https://github.com/settings/tokens (sign in, or make a free
+   account).
+2. Choose *Fine-grained tokens* → *Generate new token*.
+3. Give it a name ("Tocsin" will do) and an expiration. Under *Repository
+   access* leave *Public repositories*. Don't add any permissions; it needs
+   none.
+4. Press *Generate token* and copy it. GitHub shows it only once.
+5. Paste it in Tocsin under **Settings → API keys**.
+
+When it expires, GitHub stops accepting it. Tocsin notices, carries on
+without it, and tells you on the *Get addons* page with a *Fix in Settings*
+button.
+
+## Where keys are kept
 
 Keys are kept in Windows' own Credential Manager, never written to a file by
 Tocsin, and are only sent to the site they belong to. If you prefer, set
