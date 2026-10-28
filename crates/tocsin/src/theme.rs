@@ -71,6 +71,8 @@ pub mod space {
     pub const BTN_MD: [u16; 2] = [8, 14];
     pub const CHIP: [u16; 2] = [6, 12];
     pub const BADGE: [u16; 2] = [3, 8];
+    pub const HELP: [u16; 2] = [2, 7]; // the "?" toggle, as tall as a badge
+    pub const TIP_PAD: [u16; 2] = [8, 10];
     pub const CONFIRM_PAD: [u16; 2] = [12, 16];
     pub const ICON_HEAD: f32 = 32.0;
     pub const ICON_CHILD: f32 = 24.0;
@@ -442,6 +444,17 @@ pub fn badge(tone: Tone) -> impl Fn(&Theme) -> container::Style {
         }
     }
 }
+/// The explanation a "?" opens, under the line it explains: sunken, edged
+/// in the manual tone of the badge it explains.
+pub fn tip(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(t.surface_sunken.into()),
+        border: bd(alpha(t.manual, 0.5), R1),
+        text_color: Some(t.text_1),
+        ..Default::default()
+    }
+}
 /// Flavor tag in Settings (gold, not a status).
 pub fn tag_gold(theme: &Theme) -> container::Style {
     let t = tokens(theme);
@@ -510,6 +523,24 @@ pub fn ghost(theme: &Theme, status: button::Status) -> button::Style {
             snap: false,
         },
     )
+}
+/// The "?" that opens a [`tip`]: manual tone like a badge, filled while open.
+pub fn help(open: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme, status| {
+        let c = tokens(theme).manual;
+        let fill = if open || matches!(status, button::Status::Hovered | button::Status::Pressed) {
+            0.20
+        } else {
+            0.0
+        };
+        button::Style {
+            background: (fill > 0.0).then(|| alpha(c, fill).into()),
+            text_color: c,
+            border: bd(alpha(c, 0.5), R1),
+            shadow: Shadow::default(),
+            snap: false,
+        }
+    }
 }
 /// Remove, Replace. Label font: UI_MEDIUM.
 pub fn danger(theme: &Theme, status: button::Status) -> button::Style {

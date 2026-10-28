@@ -68,6 +68,12 @@ struct Discover {
     outcome: search::Outcome,
     /// The source an install is running from, for its button.
     installing: Option<SourceRef>,
+    /// Sources found this session to have nothing to download (a GitHub
+    /// repository without releases): their rows offer only Open. Search
+    /// cannot tell for GitHub without one more request per result.
+    site_only: HashSet<SourceRef>,
+    /// The result line whose "Site only" explanation is open, if any.
+    tip: Option<SourceRef>,
     /// A downloaded result that would replace folders already on disk,
     /// waiting for the user to say "Replace" or "Cancel".
     confirm: Option<Box<PendingInstall>>,
@@ -324,9 +330,12 @@ pub enum Message {
     /// Install a search result from the source the user picked: (source, name).
     /// Downloads and inspects first; see [`Message::Prepared`].
     InstallFrom(SourceRef, String),
+    /// Open the "why site only?" explanation of a result's line, or close it.
+    ToggleTip(SourceRef),
     /// A search result is downloaded: (name, result). Installed right away
-    /// unless it would replace folders already there.
-    Prepared(String, Result<Box<PendingInstall>, String>),
+    /// unless it would replace folders already there. A failure carries the
+    /// source when it has nothing to download at all.
+    Prepared(String, Result<Box<PendingInstall>, (String, Option<SourceRef>)>),
     /// The user accepts replacing the folders of the pending install.
     ConfirmInstall,
     /// The user drops the pending install; its zip is deleted.
@@ -815,6 +824,7 @@ impl App {
                 };
                 self.discover.seq += 1;
                 self.discover.searching = true;
+                self.discover.tip = None;
                 self.discover.searched = Some(query.clone());
                 self.notice = None;
                 let seq = self.discover.seq;
@@ -929,7 +939,19 @@ impl App {
                 self.discover.confirm = Some(pending);
                 Task::none()
             }
-            Message::Prepared(name, Err(e)) => self.update(Message::Installed(name, Err(e))),
+            Message::ToggleTip(source) => {
+                self.discover.tip = match self.discover.tip.take() {
+                    Some(open) if open == source => None,
+                    _ => Some(source),
+                };
+                Task::none()
+            }
+            Message::Prepared(name, Err((e, site_only))) => {
+                // Its row says "Site only" from now on, instead of an Install
+                // that can only fail again.
+                self.discover.site_only.extend(site_only);
+                self.update(Message::Installed(name, Err(e)))
+            }
             Message::ConfirmInstall => match self.discover.confirm.take() {
                 Some(pending) if !self.busy => self.install_pending(*pending),
                 other => {
@@ -1200,6 +1222,7 @@ impl App {
                     replacing_version: None,
                 };
                 let prepared = updater::prepare_new(&http, &creds, &target, &source).await;
+                let site_only = matches!(&prepared, Err(e) if e.is_site_only()).then(|| source.clone());
                 prepared
                     .map(|prepared| {
                         Box::new(PendingInstall {
@@ -1212,7 +1235,7 @@ impl App {
                             needs,
                         })
                     })
-                    .map_err(|e| e.to_string())
+                    .map_err(|e| (e.to_string(), site_only))
             },
             move |r| Message::Prepared(done.clone(), r),
         )

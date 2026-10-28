@@ -366,6 +366,8 @@ fn repo_hit(r: Repo) -> Option<Hit> {
         updated: year_of_iso(r.pushed_at.as_deref()),
         // The owner's avatar is a person or an organisation, not the addon.
         icon: None,
+        // Whether a release zip exists is only known at install time.
+        site_only: false,
         url: r.html_url,
         name: r.name,
     })

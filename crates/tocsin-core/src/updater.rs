@@ -48,6 +48,15 @@ pub enum UpdateError {
     Task(String),
 }
 
+impl UpdateError {
+    /// Whether the source has nothing an app can download, so trying it
+    /// again is pointless and only its page can help: no download link, or
+    /// no release at all (a GitHub repository that never published one).
+    pub fn is_site_only(&self) -> bool {
+        matches!(self, Self::NoDownload | Self::Source(SourceError::NoRelease))
+    }
+}
+
 /// Per-user cache directory for downloaded zips.
 pub fn cache_dir() -> PathBuf {
     crate::paths::project_dirs()
@@ -340,6 +349,16 @@ mod tests {
         assert_eq!(safe("Deadly Boss Mods (DBM)"), "Deadly_Boss_Mods__DBM_");
         assert_eq!(safe(&"x".repeat(300)).len(), MAX_NAME_PART);
         assert_eq!(safe("../..\\C:"), ".._.._C_");
+    }
+
+    #[test]
+    fn only_a_missing_file_makes_a_source_site_only() {
+        // Azta'rec Helper: CurseForge without a link, GitHub without releases.
+        assert!(UpdateError::NoDownload.is_site_only());
+        assert!(UpdateError::Source(SourceError::NoRelease).is_site_only());
+        // A failure that may pass on the next try.
+        assert!(!UpdateError::Task("cancelled".into()).is_site_only());
+        assert!(!UpdateError::Source(SourceError::MissingCredentials("CurseForge")).is_site_only());
     }
 
     #[test]

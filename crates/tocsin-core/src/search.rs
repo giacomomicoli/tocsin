@@ -78,6 +78,9 @@ pub struct Hit {
     /// logo, or WoWInterface's first screenshot thumbnail. Untrusted: only
     /// [`crate::icons::fetch`] may act on it.
     pub icon: Option<String>,
+    /// The provider says it hands no file to apps (a CurseForge author's
+    /// choice): installing means opening the page.
+    pub site_only: bool,
 }
 
 /// One addon and every provider that offers it. Never empty; the first hit is
@@ -420,6 +423,7 @@ mod tests {
             folders: Vec::new(),
             updated: None,
             icon: None,
+            site_only: false,
         }
     }
 
