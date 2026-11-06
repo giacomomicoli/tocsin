@@ -8,6 +8,6 @@ The library's addon row — use for every line in the installed list, including 
 <AddonRow kind="missing" name="LibDataBroker-1.1" meta="required by HandyNotes · not installed" actions={<Button variant="primary">Install</Button>} />
 ```
 
-Columns: name (fill) · versions 120px right-aligned mono · badge 150px right-aligned · actions. Children get no Disable/Remove (they follow the head).
+Columns: name (fill) · versions 120px right-aligned mono, cut with `…` to fit and whole in a HoverTip (`widgets::mono_fitted`) · badge 150px right-aligned · actions. Children get no Disable/Remove (they follow the head).
 
 A disabled head adds a danger **Delete** after Remove (Open · Enable · Remove · Delete); a removed row shows ghost **Restore** then danger **Delete**. Delete never acts at once: it raises the ConfirmBanner (`feedback/Notice`) above the list.

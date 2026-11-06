@@ -8,7 +8,7 @@ use tocsin_core::search::{Found, Hit};
 use tocsin_core::secrets::Secret;
 use tocsin_core::SourceRef;
 
-use super::widgets::{self, badge, icon_slot, monogram};
+use super::widgets::{self, badge, ellipsize, icon_slot, monogram};
 use super::{App, CatalogState, Message, PendingInstall, Screen};
 use crate::theme::{self, size, Tone};
 
@@ -288,12 +288,4 @@ fn hint_row<'a>(message: &'a str, warn: bool, action: &'a str) -> Element<'a, Me
     .spacing(10)
     .align_y(Alignment::Center)
     .into()
-}
-
-/// At most `max` characters of `s`, with an ellipsis when cut.
-fn ellipsize(s: &str, max: usize) -> String {
-    match s.char_indices().nth(max) {
-        Some((at, _)) => format!("{}…", s[..at].trim_end()),
-        None => s.to_string(),
-    }
 }

@@ -347,12 +347,11 @@ impl App {
             name_col = name_col.push(text(issue.describe()).size(size::META).style(style));
         }
 
+        // A file name standing in for a version ("AztarecHelper-2.9.0.zip")
+        // would run into the badge: cut to the column, whole on hover.
         let versions = column![
-            text(installed).size(size::CONTROL).font(theme::MONO),
-            text(latest)
-                .size(size::META)
-                .font(theme::MONO)
-                .style(theme::muted),
+            widgets::mono_fitted(installed, size::CONTROL, space::VERSIONS_W, |t| t),
+            widgets::mono_fitted(latest, size::META, space::VERSIONS_W, |t| t.style(theme::muted)),
         ]
         .spacing(2)
         .align_x(Alignment::End)

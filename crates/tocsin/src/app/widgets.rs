@@ -3,7 +3,7 @@
 //! come from `theme`; nothing here picks its own.
 
 use iced::widget::{
-    button, column, container, image, row, scrollable, space, text, Button, Scrollable, Text,
+    button, column, container, image, row, scrollable, space, text, tooltip, Button, Scrollable, Text,
 };
 use iced::{Alignment, Element, Fill, Font, Padding, Theme};
 
@@ -62,6 +62,46 @@ pub(super) fn page_head<'a>(
 /// container: what does not fit is cut at the edge, as in the mock.
 pub(super) fn one_line<'a>(t: Text<'a>) -> Text<'a> {
     t.wrapping(text::Wrapping::None)
+}
+
+/// `s` in at most `max` characters, the last one `…` when it had to be cut.
+pub(super) fn ellipsize(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let Some(keep) = max.checked_sub(1) else {
+        return String::new();
+    };
+    let kept: String = s.chars().take(keep).collect();
+    format!("{}…", kept.trim_end())
+}
+
+/// A mono value in a column `width` wide: cut with `…` when it does not fit,
+/// and then shown whole in a hover tip. iced cannot ellipsize, but a mono
+/// font makes the cut exact by character count; the clip is the backstop.
+/// `styled` adds the color, so a row's own (faded) text color still applies
+/// when it adds none.
+pub(super) fn mono_fitted<'a>(
+    value: String,
+    size: f32,
+    width: f32,
+    styled: impl FnOnce(Text<'a>) -> Text<'a>,
+) -> Element<'a, Message> {
+    let shown = ellipsize(&value, theme::mono_fit(width, size));
+    let cut = shown != value;
+    let line = container(styled(one_line(text(shown).size(size).font(theme::MONO))))
+        .width(Fill)
+        .align_x(Alignment::End)
+        .clip(true);
+    if !cut {
+        return line.into();
+    }
+    let whole = container(text(value).size(size::META).font(theme::MONO))
+        .padding(theme::space::TIP_PAD)
+        .style(theme::hover_tip);
+    tooltip(line, whole, tooltip::Position::Top)
+        .gap(theme::space::HOVER_GAP)
+        .into()
 }
 
 /// A vertical list with the thin themed scrollbar, 6px off the content.
@@ -228,5 +268,22 @@ mod tests {
         assert_eq!(monogram("!BugGrabber"), "Bu");
         assert_eq!(monogram("4"), "4");
         assert_eq!(monogram("—"), "");
+    }
+
+    #[test]
+    fn ellipsize_keeps_what_fits_and_cuts_the_rest() {
+        assert_eq!(ellipsize("12.0.391", 16), "12.0.391");
+        // A CurseForge file name as the version (issue #14).
+        assert_eq!(ellipsize("AztarecHelper-2.9.0.zip", 16), "AztarecHelper-2…");
+        assert_eq!(ellipsize("AztarecHelper-2.9.0.zip", 16).chars().count(), 16);
+        assert_eq!(ellipsize("a · b c", 6), "a · b…");
+        assert_eq!(ellipsize("ab", 0), "");
+    }
+
+    #[test]
+    fn the_version_column_fits_its_mono_characters() {
+        // 120px at 12px: 7.2px a glyph, 16 of them; at 13px, 15.
+        assert_eq!(theme::mono_fit(theme::space::VERSIONS_W, size::META), 16);
+        assert_eq!(theme::mono_fit(theme::space::VERSIONS_W, size::CONTROL), 15);
     }
 }

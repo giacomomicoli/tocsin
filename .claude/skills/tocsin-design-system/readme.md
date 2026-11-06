@@ -43,7 +43,7 @@ Copy comes straight from the codebase; keep its voice.
   - **Sidebar, 240px, never changes between pages.** `--surface-frame-gradient`, separated by a 1px `--border-frame` column (iced: a 1px-wide container — borders are all-sides only). Padding 18/14/14, gap 14. Top→bottom: lockup 52px tall · gold rule · "INSTALLATIONS" label (Cinzel 11, `--text-gold`) · one item per game folder (32px monogram slot, flavor name in Cinzel 13, "build · N addons" 12, truncated path mono 10, update-count tag) · "+ Add game folder" (dashed ghost) · flex spacer · gold rule · page nav (Library, Get addons, Settings) as full-width items, selected = gold `--btn-selected-*`.
   - **Content, fills the rest, padding 20, gap 14.** Only this column changes per page. Always: page head (Cinzel 18 `--text-title` + mono "Flavor build · path" line, page actions right) · gold rule · page body · footer notice line.
   - Selecting an installation re-scopes the content column; the selected install also names the window ("Tocsin — Retail").
-  - Library body: filter chips + 240px search, scrolling list; right-aligned fixed columns: versions 120px, badge 150px.
+  - Library body: filter chips + 240px search, scrolling list; right-aligned fixed columns: versions 120px, badge 150px. A version longer than its column is cut with `…` and shown whole in a HoverTip.
   - Get addons body: full-width search (input padding 10 + primary Search 9/16), catalog/key status lines, optional confirm banner, results list; result row = 32px icon slot · name/by/summary · 400px sources column (provider 96px · facts · Open · Install, or a "Site only" `Tone::Manual` badge when the site has no file for apps, followed by a HelpTip "?" that opens the reason under the line).
   - Settings body: gilded-frame sections (Game Folders, API Keys; section title Cinzel 16), Save bottom-right. Settings is the only page that uses frames in the content column.
 
@@ -71,7 +71,7 @@ Cinzel, Alegreya Sans and JetBrains Mono are loaded from Google Fonts in the HTM
   - `actions/Button` — primary · secondary · danger · selected; sm / md / chip
   - `display/Badge` — status badge; `display/Frame` + `GoldRule`
   - `forms/SearchInput`
-  - `feedback/Notice` + `ConfirmBanner` + `Loader`; `feedback/HelpTip`: a "?" that opens or closes the explanation of a badge
+  - `feedback/Notice` + `ConfirmBanner` + `Loader`; `feedback/HelpTip`: a "?" that opens or closes the explanation of a badge; `feedback/HoverTip`: the whole of a mono value cut to fit its column, on hover
   - `library/AddonRow` — head, child, missing, removed
 - `ui_kits/tocsin-desktop/` — the visual reference: all three pages in the two-column shell (`Library.dc.html`, tweak `startScreen` and `theme`)
 - `rust/theme.rs` — the tokens and styles as iced 0.14 code, the earlier version (the crate's `theme.rs` has moved on; see `rust/INTEGRATION.md` §9)
