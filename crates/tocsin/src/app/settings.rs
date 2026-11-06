@@ -70,7 +70,7 @@ impl App {
                             .size(size::CONTROL)
                             .font(theme::MONO)
                             .width(Fill),
-                        widgets::ghost("Remove", size::META, [4, 10])
+                        widgets::danger("Remove", size::META, [4, 10])
                             .on_press_maybe((!self.busy).then_some(Message::RemoveGameFolder(i))),
                     ]
                     .spacing(12)

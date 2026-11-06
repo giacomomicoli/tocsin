@@ -201,7 +201,11 @@ them.
 ### More than one game
 
 Every game folder you add (Retail, Classic, …) appears in the sidebar; click
-one to switch. In *Settings → Theme* you can choose between a dark look
+one to switch. To stop managing one, select it and click **Remove folder** at
+the top of the library (or the **×** that appears when you hover it in the
+sidebar, or *Remove* in *Settings → Game Folders*): Tocsin asks first, then
+forgets the folder. Nothing on disk is touched, and you can add it again any
+time. In *Settings → Theme* you can choose between a dark look
 (*Void*, the default) and a light one (*Sunwell*).
 
 ## CurseForge key (optional, but recommended)

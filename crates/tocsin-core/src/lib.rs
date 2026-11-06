@@ -30,7 +30,7 @@ pub mod version;
 
 pub use addon::{scan_addons_dir, InstalledAddon};
 pub use checker::{check_all, UpdateReport, UpdateStatus};
-pub use manifest::{Manifest, SourceOverride};
+pub use manifest::{FolderRemoved, Manifest, SourceOverride};
 pub use sources::SourceRef;
 pub use toc::Toc;
 pub use version::Version;
