@@ -4,6 +4,7 @@ ConfirmBanner is `widgets::confirm_banner(title, body, actions)` in the app (pad
 
 - Get addons: an install whose zip replaces folders already in AddOns (Replace).
 - Library: Delete on a disabled or removed addon (Delete) — the one action nothing restores.
+- Any page: the Library's "Remove folder", the sidebar's "×" or Settings' Remove on a game folder ("Remove Retail from Tocsin?", Remove). Nothing on disk changes, but the mark is small and sits on the item it would switch to, so it asks; the body names the full path, since two folders can share a flavor name. Shown above the page, on whichever page is open.
 
 ```jsx
 <Notice onDismiss={close}>3 updates found.</Notice>

@@ -18,6 +18,7 @@
   --pad-chip: 6px 12px;        /* space::CHIP */
   --pad-badge: 3px 8px;        /* space::BADGE */
   --pad-help: 2px 7px;         /* space::HELP */
+  --pad-corner: 4px;           /* space::CORNER */
   --pad-tip: 8px 10px;         /* space::TIP_PAD */
   --gap-hover-tip: 4px;        /* space::HOVER_GAP */
   --pad-confirm: 12px 16px;    /* space::CONFIRM_PAD */

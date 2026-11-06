@@ -70,6 +70,45 @@ pub struct Settings {
     pub curseforge_api_key: Option<String>,
 }
 
+/// What removing a game folder did to the installation on screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FolderRemoved {
+    /// Index of the installation to show now. Meaningless when the list is
+    /// empty.
+    pub shown: usize,
+    /// The installation shown is a different one (the removed folder was the
+    /// one on screen): its library must be scanned again.
+    pub switched: bool,
+}
+
+impl Settings {
+    /// Forget the game folder `dir`, with `shown` the index of the one on
+    /// screen. Nothing on disk is touched, and the overrides stay: they are
+    /// keyed by addon folder, shared by every installation. `None` when
+    /// `dir` is not in the list.
+    ///
+    /// A folder above the shown one shifts it up by one; removing the shown
+    /// folder itself falls back to the first one, as at startup.
+    pub fn remove_game_folder(&mut self, dir: &Path, shown: usize) -> Option<FolderRemoved> {
+        let i = self.game_folders.iter().position(|f| f == dir)?;
+        self.game_folders.remove(i);
+        Some(match i.cmp(&shown) {
+            std::cmp::Ordering::Less => FolderRemoved {
+                shown: shown - 1,
+                switched: false,
+            },
+            std::cmp::Ordering::Greater => FolderRemoved {
+                shown,
+                switched: false,
+            },
+            std::cmp::Ordering::Equal => FolderRemoved {
+                shown: 0,
+                switched: true,
+            },
+        })
+    }
+}
+
 /// Written by hand so a `{:?}` of the manifest never prints the legacy key.
 impl std::fmt::Debug for Settings {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -194,6 +233,79 @@ ignore = true
     fn unknown_fields_are_rejected() {
         let text = "[settings]\nbogus = 1\n";
         assert!(toml::from_str::<Manifest>(text).is_err());
+    }
+
+    /// Retail, Classic Era and a test folder left over from development
+    /// (issue #9): the one the user drops may sit anywhere in the list.
+    fn three_folders() -> Settings {
+        Settings {
+            game_folders: vec![
+                PathBuf::from("/wow/_retail_/Interface/AddOns"),
+                PathBuf::from("/wow/_classic_era_/Interface/AddOns"),
+                PathBuf::from("/tmp/test/_retail_/Interface/AddOns"),
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn removing_a_folder_above_the_shown_one_keeps_it_on_screen() {
+        let mut s = three_folders();
+        let r = s.remove_game_folder(Path::new("/wow/_retail_/Interface/AddOns"), 2);
+        assert_eq!(
+            r,
+            Some(FolderRemoved {
+                shown: 1,
+                switched: false
+            })
+        );
+        assert_eq!(
+            s.game_folders[1],
+            PathBuf::from("/tmp/test/_retail_/Interface/AddOns")
+        );
+    }
+
+    #[test]
+    fn removing_a_folder_below_the_shown_one_changes_nothing_on_screen() {
+        let mut s = three_folders();
+        let r = s.remove_game_folder(Path::new("/tmp/test/_retail_/Interface/AddOns"), 0);
+        assert_eq!(
+            r,
+            Some(FolderRemoved {
+                shown: 0,
+                switched: false
+            })
+        );
+        assert_eq!(s.game_folders.len(), 2);
+    }
+
+    #[test]
+    fn removing_the_shown_folder_falls_back_to_the_first() {
+        let mut s = three_folders();
+        let r = s.remove_game_folder(Path::new("/wow/_classic_era_/Interface/AddOns"), 1);
+        assert_eq!(
+            r,
+            Some(FolderRemoved {
+                shown: 0,
+                switched: true
+            })
+        );
+        assert_eq!(s.game_folders[0], PathBuf::from("/wow/_retail_/Interface/AddOns"));
+
+        let mut last = Settings {
+            game_folders: vec![PathBuf::from("/wow/_retail_/Interface/AddOns")],
+            ..Default::default()
+        };
+        let r = last.remove_game_folder(Path::new("/wow/_retail_/Interface/AddOns"), 0);
+        assert!(r.is_some_and(|r| r.switched));
+        assert!(last.game_folders.is_empty());
+    }
+
+    #[test]
+    fn removing_an_unknown_folder_does_nothing() {
+        let mut s = three_folders();
+        assert_eq!(s.remove_game_folder(Path::new("/elsewhere"), 1), None);
+        assert_eq!(s, three_folders());
     }
 
     #[test]

@@ -81,6 +81,7 @@ pub mod space {
     pub const CHIP: [u16; 2] = [6, 12];
     pub const BADGE: [u16; 2] = [3, 8];
     pub const HELP: [u16; 2] = [2, 7]; // the "?" toggle, as tall as a badge
+    pub const CORNER: u16 = 4; // the sidebar "×" ↔ its installation's corner
     pub const TIP_PAD: [u16; 2] = [8, 10];
     pub const HOVER_GAP: f32 = 4.0; // hover tip ↔ the value it completes
     pub const CONFIRM_PAD: [u16; 2] = [12, 16];
@@ -624,6 +625,23 @@ pub fn install_item(active: bool) -> impl Fn(&Theme, button::Status) -> button::
             shadow: Shadow::default(),
             snap: false,
         }
+    }
+}
+/// The "×" in the corner of a hovered sidebar installation: a muted glyph
+/// that turns into a small danger button under the cursor. Label font:
+/// UI_MEDIUM.
+pub fn remove_mark(theme: &Theme, status: button::Status) -> button::Style {
+    if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+        let mut st = danger(theme, status);
+        st.border.radius = Radius::from(R1);
+        return st;
+    }
+    button::Style {
+        background: None,
+        text_color: tokens(theme).text_2,
+        border: bd(Color::TRANSPARENT, R1),
+        shadow: Shadow::default(),
+        snap: false,
     }
 }
 /// "+ Add game folder" in the sidebar (iced has no dashed borders: solid, muted).

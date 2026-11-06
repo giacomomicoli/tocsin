@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use iced::futures::stream::{self, StreamExt};
-use iced::widget::{button, column, container, image, row, space, text};
+use iced::widget::{button, column, container, hover, image, row, space, text};
 use iced::{Alignment, Element, Fill, Padding, Subscription, Task, Theme};
 
 use tocsin_core::addon::Flavor;
@@ -232,6 +232,9 @@ pub struct App {
     /// Family (head folder, or removed key) the user asked to delete for
     /// good; the confirm banner shows until they answer.
     confirm_delete: Option<String>,
+    /// Game folder the user asked to stop managing; the confirm banner shows
+    /// until they answer. A path, not an index: the list may change meanwhile.
+    confirm_remove_folder: Option<PathBuf>,
     /// Folder currently being updated, for the row's spinner text.
     installing: Option<String>,
     statuses: BTreeMap<String, UpdateStatus>,
@@ -362,7 +365,12 @@ pub enum Message {
     // settings
     AddGameFolder,
     GameFolderPicked(Option<PathBuf>),
+    /// Ask before forgetting this game folder (from Settings or the sidebar).
     RemoveGameFolder(usize),
+    /// The user confirms: Tocsin stops managing the folder.
+    ConfirmRemoveFolder,
+    /// The user keeps the folder.
+    CancelRemoveFolder,
     KeyChanged(Secret, Typed),
     SaveSettings,
     /// Delete the key from the OS credential store.
@@ -404,6 +412,7 @@ impl App {
             rollbackable: BTreeSet::new(),
             removed: Vec::new(),
             confirm_delete: None,
+            confirm_remove_folder: None,
             installing: None,
             statuses: BTreeMap::new(),
             counts: Counts::default(),
@@ -1073,19 +1082,14 @@ impl App {
             }
             Message::GameFolderPicked(None) => Task::none(),
             Message::RemoveGameFolder(i) => {
-                let folders = &mut self.manifest.settings.game_folders;
-                if i < folders.len() {
-                    folders.remove(i);
-                    let len = folders.len();
-                    self.save_manifest();
-                    if self.active_folder >= len {
-                        self.active_folder = 0;
-                    }
-                    self.clear_library();
-                    self.notice = Some((false, "Game folder removed.".into()));
-                }
+                self.confirm_remove_folder = self.manifest.settings.game_folders.get(i).cloned();
                 Task::none()
             }
+            Message::CancelRemoveFolder => {
+                self.confirm_remove_folder = None;
+                Task::none()
+            }
+            Message::ConfirmRemoveFolder => self.remove_game_folder(),
             Message::KeyChanged(secret, Typed(value)) => {
                 if self.key_status.get(&secret) != Some(&KeyStatus::Env) {
                     self.form.input.insert(secret, value);
@@ -1501,6 +1505,39 @@ impl App {
         }
     }
 
+    /// Forget the folder the user confirmed. Only the list changes: nothing
+    /// on disk is touched. The library on screen stays unless it was that
+    /// folder's, in which case the first installation left is scanned.
+    fn remove_game_folder(&mut self) -> Task<Message> {
+        let Some(dir) = self.confirm_remove_folder.take() else {
+            return Task::none();
+        };
+        // Not while an operation runs: it works in the folder on screen,
+        // which this may switch away from.
+        if self.busy {
+            self.confirm_remove_folder = Some(dir);
+            return Task::none();
+        }
+        let Some(removed) = self
+            .manifest
+            .settings
+            .remove_game_folder(&dir, self.active_folder)
+        else {
+            return Task::none();
+        };
+        self.save_manifest();
+        self.active_folder = removed.shown;
+        let mut task = Task::none();
+        if removed.switched {
+            self.clear_library();
+            if !self.manifest.settings.game_folders.is_empty() {
+                task = self.update(Message::Scan);
+            }
+        }
+        self.notice = Some((false, format!("{} game folder removed.", detect::label_of(&dir))));
+        task
+    }
+
     fn save_manifest(&self) {
         if let Some(path) = &self.manifest_path {
             if let Err(e) = self.manifest.save(path) {
@@ -1548,6 +1585,13 @@ impl App {
                 .spacing(theme::space::PAGE_GAP)
                 .into(),
             _ => page,
+        };
+        // The sidebar's "×" can be pressed from any page: ask on that page.
+        let page: Element<'_, Message> = match &self.confirm_remove_folder {
+            Some(dir) => column![self.remove_folder_banner(dir), page]
+                .spacing(theme::space::PAGE_GAP)
+                .into(),
+            None => page,
         };
         let content = column![page, self.footer()]
             .spacing(theme::space::PAGE_GAP)
@@ -1672,12 +1716,48 @@ impl App {
                 .style(theme::badge(Tone::Update)),
             );
         }
-        button(item)
+        let item = button(item)
             .padding([8, 10])
             .width(Fill)
             .style(theme::install_item(active))
-            .on_press_maybe((!self.busy).then_some(Message::SelectFolder(i)))
-            .into()
+            .on_press_maybe((!self.busy).then_some(Message::SelectFolder(i)));
+        if self.busy {
+            return item.into();
+        }
+        // In the top-right corner, clear of the update count (centred), and
+        // only under the cursor: the sidebar stays as quiet as the mock.
+        let remove = button(text("×").size(theme::size::META).font(theme::UI_MEDIUM))
+            .padding(theme::space::HELP)
+            .style(theme::remove_mark)
+            .on_press(Message::RemoveGameFolder(i));
+        let corner = container(remove)
+            .width(Fill)
+            .height(Fill)
+            .align_right(Fill)
+            .align_top(Fill)
+            .padding(theme::space::CORNER);
+        hover(item, corner)
+    }
+
+    /// "Remove Retail from Tocsin?": it only forgets the folder, but the
+    /// "×" is small and close to the item it switches to, so the user is asked.
+    fn remove_folder_banner<'a>(&'a self, dir: &'a Path) -> Element<'a, Message> {
+        let body = format!(
+            "Tocsin stops managing {}. Nothing on disk is touched; add it again any time.",
+            dir.display()
+        );
+        let actions = row![
+            widgets::ghost("Cancel", theme::size::META, theme::space::BTN_SM)
+                .on_press(Message::CancelRemoveFolder),
+            widgets::danger("Remove", theme::size::META, theme::space::BTN_SM)
+                .on_press_maybe((!self.busy).then_some(Message::ConfirmRemoveFolder)),
+        ]
+        .spacing(10);
+        widgets::confirm_banner(
+            format!("Remove {} from Tocsin?", detect::label_of(dir)),
+            body,
+            actions,
+        )
     }
 
     fn nav(&self, label: &'static str, screen: Screen) -> Element<'_, Message> {

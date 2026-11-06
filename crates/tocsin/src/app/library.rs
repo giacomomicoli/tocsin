@@ -12,19 +12,25 @@ use super::{App, Counts, Filter, Message};
 use crate::theme::{self, size, space, Tone};
 
 impl App {
-    /// Head ("Installed Addons", client and path, Rescan / Check updates),
-    /// filter chips, then the list.
+    /// Head ("Installed Addons", client and path, Remove folder / Rescan /
+    /// Check updates), filter chips, then the list.
     pub(super) fn library_page(&self) -> Element<'_, Message> {
         let subtitle = match self.active_dir() {
             Some(dir) if self.client.is_empty() => dir.display().to_string(),
             Some(dir) => format!("{} · {}", self.client, dir.display()),
             None => "No game folder yet".to_string(),
         };
+        // Ghost, not danger: it only raises the confirm banner, whose answer
+        // is the danger button. The sidebar's "×" shows only under the cursor;
+        // this is the place the user finds without looking for it.
+        let remove = self.active_dir().is_some() && !self.busy;
         let actions = row![
             text(format!("{} addons", self.addons.len()))
                 .size(size::META)
                 .style(theme::muted),
             row![
+                widgets::ghost("Remove folder", size::CONTROL, space::BTN_MD)
+                    .on_press_maybe(remove.then_some(Message::RemoveGameFolder(self.active_folder))),
                 widgets::ghost("Rescan", size::CONTROL, space::BTN_MD)
                     .on_press_maybe((!self.busy).then_some(Message::Scan)),
                 widgets::primary(
