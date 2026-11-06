@@ -477,12 +477,13 @@ mod tests {
             fits(Flavor::Classic, Some(20506)),
             [(465000, Compat::Exact), (8, Compat::Unknown)]
         );
-        // Build unknown: the flavor still filters, nothing is confirmed.
+        // Build unknown: the flavor still filters, and a listed Classic
+        // version is the confirmation; the unindexed project stays unverified.
         assert_eq!(
             fits(Flavor::Classic, None),
             [
-                (61284, Compat::Unknown),
-                (465000, Compat::Unknown),
+                (61284, Compat::Exact),
+                (465000, Compat::Exact),
                 (8, Compat::Unknown)
             ]
         );

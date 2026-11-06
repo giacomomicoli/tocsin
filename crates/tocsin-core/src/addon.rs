@@ -140,7 +140,19 @@ impl Compat {
     /// ElvUI for `["12.1.5","1.60.1","5.5.4","1.15.9","2.5.6"]`: to
     /// [`Compat::of`] a Wrath 3.4.5 client sees Classic builds both sides of
     /// its own and calls it newer, when no ElvUI is offered for Wrath at all.
+    ///
+    /// With the game's build unknown, a listed version for the flavor is the
+    /// best confirmation there is, and counts as [`Compat::Exact`]: Tukui
+    /// lists ElvUI for 1.60.1, so it is offered for a Forever client whose
+    /// build could not be read. [`Compat::Unknown`] stays for sites that list
+    /// nothing.
     pub fn listed(interfaces: &[u32], flavor: Flavor, client_interface: Option<u32>) -> Compat {
+        if client_interface.is_none() {
+            return match Compat::of(interfaces, flavor, None) {
+                Compat::Unknown if !interfaces.is_empty() => Compat::Exact,
+                other => other,
+            };
+        }
         let Some(current) = client_interface.filter(|_| flavor == Flavor::Classic) else {
             return Compat::of(interfaces, flavor, client_interface);
         };
@@ -172,7 +184,10 @@ impl Compat {
         let game = client_interface.map(interface_to_string);
         match (self, game) {
             (Compat::Exact, Some(game)) => format!("The site lists a file for {} {game}.", flavor.label()),
-            (Compat::Exact, None) => format!("The site lists a file for {}.", flavor.label()),
+            (Compat::Exact, None) => format!(
+                "The site lists a file for {}. The game's build is unknown, so it cannot be compared.",
+                flavor.label()
+            ),
             (Compat::Older { built_for }, Some(game)) => format!(
                 "Built for {}, the game is {game}: loads as out of date.",
                 interface_to_string(built_for)
@@ -196,7 +211,7 @@ impl Compat {
                 flavor.label()
             ),
             (Compat::Unknown, None) => format!(
-                "The game's version is unknown, so the site's files cannot be matched to it. \
+                "The site does not say which game it is for, and the game's build is unknown. \
                  Tocsin checks the zip's .toc on Install and refuses one that is not for {}.",
                 flavor.label()
             ),
@@ -755,8 +770,12 @@ mod tests {
         // Titan (3.80.x) is not Wrath (3.4.x).
         assert_eq!(Compat::listed(&[30405], c, Some(38002)), Compat::OtherFlavor);
         assert_eq!(Compat::listed(&[38002], c, Some(38002)), Compat::Exact);
-        // Build unknown, or another flavor: the plain comparison.
-        assert_eq!(Compat::listed(&elvui, c, None), Compat::Unknown);
+        // Build unknown: a listed version for the flavor is the confirmation.
+        assert_eq!(Compat::listed(&elvui, c, None), Compat::Exact);
+        assert_eq!(Compat::listed(&elvui, Flavor::Forever, None), Compat::Exact);
+        assert_eq!(Compat::listed(&[120105], c, None), Compat::OtherFlavor);
+        assert_eq!(Compat::listed(&[], c, None), Compat::Unknown);
+        // Another flavor: the plain comparison.
         assert_eq!(
             Compat::listed(&elvui, Flavor::Forever, Some(16001)),
             Compat::Exact
@@ -780,7 +799,7 @@ mod tests {
         );
         assert_eq!(
             Compat::Exact.describe(f, None),
-            "The site lists a file for Forever."
+            "The site lists a file for Forever. The game's build is unknown, so it cannot be compared."
         );
         assert_eq!(
             Compat::Older { built_for: 120100 }.describe(Flavor::Retail, Some(120105)),
@@ -810,9 +829,11 @@ mod tests {
             "The site does not say which game it is for. Tocsin checks the zip's .toc on \
              Install and refuses one that is not for Forever."
         );
-        assert!(Compat::Unknown
-            .describe(f, None)
-            .starts_with("The game's version is unknown"));
+        assert_eq!(
+            Compat::Unknown.describe(f, None),
+            "The site does not say which game it is for, and the game's build is unknown. Tocsin \
+             checks the zip's .toc on Install and refuses one that is not for Forever."
+        );
     }
 
     #[test]

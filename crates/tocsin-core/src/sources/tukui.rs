@@ -213,8 +213,8 @@ mod tests {
         // No Wrath build listed: not offered on a Wrath client.
         assert_eq!(elvui(Flavor::Classic, Some(30405)), None);
         assert_eq!(elvui(Flavor::Classic, Some(50504)), Some(Compat::Exact));
-        // Listed for Retail, the game's build unknown: nothing to compare.
-        assert_eq!(elvui(Flavor::Retail, None), Some(Compat::Unknown));
+        // Listed for Retail, the game's build unknown: the listing confirms it.
+        assert_eq!(elvui(Flavor::Retail, None), Some(Compat::Exact));
         assert_eq!(elvui(Flavor::Retail, Some(120105)), Some(Compat::Exact));
         assert_eq!(
             elvui(Flavor::Retail, Some(120107)),

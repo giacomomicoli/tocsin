@@ -83,13 +83,11 @@ impl App {
         page = page.push(self.results_bar());
         // Strict hides what no site confirms, but never an addon already
         // installed: the row still says whether that copy fits this game.
-        // With the game's build unknown nothing is confirmed: no filter then.
-        let strict = d.strict && self.client_interface.is_some();
         let shown: Vec<&Found> = d
             .outcome
             .results
             .iter()
-            .filter(|f| !strict || f.confirmed() || self.installed.contains(f))
+            .filter(|f| !d.strict || f.confirmed() || self.installed.contains(f))
             .collect();
         if shown.is_empty() {
             let hint = format!(
@@ -109,16 +107,9 @@ impl App {
 
     /// "Results for Forever 1.60.1 · 9 confirmed · 4 unverified", with the
     /// two chips that show only the confirmed ones or everything found.
-    /// With the game's build unknown every hit is unverified: the line says
-    /// so and the chips, which could only empty the list, are left out.
+    /// With the game's build unknown a site's listing for the flavor still
+    /// confirms a result, so the line and the chips are the same.
     fn results_bar(&self) -> Element<'_, Message> {
-        if self.client_interface.is_none() {
-            let summary = format!(
-                "Results for {} · game build unknown, nothing can be confirmed",
-                self.flavor.label()
-            );
-            return text(summary).size(size::META).style(theme::muted).into();
-        }
         let results = &self.discover.outcome.results;
         let confirmed = results.iter().filter(|f| f.confirmed()).count();
         let client = if self.client.is_empty() {

@@ -164,7 +164,8 @@ other versions of WoW are left out. Each site line also says what that site
 knows about your game:
 
 - the game's name (*Retail*, *Classic Era*, *Classic*, *Forever*): the site
-  lists a file for your game at its current build;
+  lists a file for your game at its current build. When Tocsin does not
+  know your game's build, it means the site lists a file for your game;
 - *Out of date*: the site's file is for an older build of your game, which
   the game shows as out of date but still loads;
 - *Newer build*: the file is for a newer build than the one you have;
