@@ -237,7 +237,7 @@ impl App {
         let installed = a
             .installed
             .as_ref()
-            .map(|v| v.as_str().to_string())
+            .map(|v| v.label().to_string())
             .unwrap_or_else(|| "—".into());
 
         let latest = match status {
@@ -251,9 +251,9 @@ impl App {
                 // in version string and may offer no direct download.
                 let first = a.source().map(SourceRef::provider).unwrap_or("");
                 if r.provider.is_empty() || r.provider == first {
-                    r.version.as_str().to_string()
+                    r.version.label().to_string()
                 } else {
-                    format!("{} · {}", r.version.as_str(), r.provider)
+                    format!("{} · {}", r.version.label(), r.provider)
                 }
             }
             _ => "—".into(),
