@@ -1194,14 +1194,17 @@ impl App {
         let http = self.http.clone();
         let manifest = self.manifest.clone();
         let addons = Arc::clone(&self.addons);
-        let flavor = self.flavor;
+        let (flavor, build) = (self.flavor, self.client_interface);
         let gen = self.lib_gen;
         Task::perform(
             async move {
                 match scope {
-                    CheckScope::All => checker::check_all(&http, &manifest, &creds, &addons, flavor).await,
+                    CheckScope::All => {
+                        checker::check_all(&http, &manifest, &creds, &addons, flavor, build).await
+                    }
                     CheckScope::Folders(folders) => {
-                        checker::check_folders(&http, &manifest, &creds, &addons, flavor, &folders).await
+                        checker::check_folders(&http, &manifest, &creds, &addons, flavor, build, &folders)
+                            .await
                     }
                 }
             },

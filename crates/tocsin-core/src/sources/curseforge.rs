@@ -354,6 +354,7 @@ pub async fn latest(http: &Http, key: &str, id: u64, flavor: Flavor) -> Result<R
         download: file.download_url,
         digest,
         provider: String::new(),
+        interfaces: None,
     })
 }
 

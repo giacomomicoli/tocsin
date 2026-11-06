@@ -49,6 +49,7 @@ pub async fn latest(http: &Http, id: u64) -> Result<Release, SourceError> {
             .filter(|h| h.len() == 32 && h.chars().all(|c| c.is_ascii_hexdigit()))
             .map(Digest::Md5),
         provider: String::new(),
+        interfaces: None,
     })
 }
 

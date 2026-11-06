@@ -40,6 +40,14 @@ Which game and build a folder belongs to comes from Blizzard's own
 `.flavor.info` and `.build.info` files, so Retail, Classic Era, Classic and
 WoW Classic Forever are told apart exactly, and sources that publish one file
 per flavor (CurseForge, GitHub release assets) are asked for the right one.
+A GitHub release built with the BigWigs packager carries a `release.json`
+beside its zips, saying which games and builds each zip was made for; Tocsin
+reads it, takes the zip listed for your game (a Classic client only one of
+its own progression, Titan apart from Wrath), and shows when that zip is for
+an older or newer build than yours, as search does. Without the file, or
+when it lists nothing for your game, the zip is picked by its name
+(`-classic`, `-cata`, `-forever`…) as before, and the `.toc` inside is
+checked on install.
 The build number decides first: Blizzard reuses product codes for other
 games (`wow_classic_beta` carried the Mists beta, then WoW Forever 1.60;
 `wow_classic_era_ptr` tests TBC Anniversary). The product code, then the
@@ -180,6 +188,13 @@ that way:
   the host it was sent to, and a download may only hop between the
   providers' own hosts (GitHub → its asset CDN, say), over HTTPS, three hops
   at most.
+- Checking a GitHub addon whose release carries the packager's
+  `release.json` costs one more request: that small JSON file, fetched from
+  where the zips are (`github.com`, redirected to its asset CDN) under the
+  download hosts' redirect rules, the 1 MiB body cap, a short timeout, and
+  without the token. It is asked once per run, however many folders share
+  the release. A file that is missing, too large or not what the packager
+  writes only means the zip is picked by its name.
 - Downloads come only from the providers' own hosts; a zip is inspected
   before extraction (no `..`, absolute paths, symlinks, Windows device names
   such as `CON` or `aux.lua`, names ending in a dot or space, dot-folders at

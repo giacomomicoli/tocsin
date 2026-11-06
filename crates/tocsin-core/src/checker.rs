@@ -79,13 +79,15 @@ pub fn credentials(manifest: &Manifest) -> Credentials {
     crate::secrets::credentials(manifest)
 }
 
-/// Check one addon.
+/// Check one addon. `client_interface` is the game's build when known: a
+/// release that says which build each of its zips is for is read for it.
 pub async fn check_one(
     http: &Http,
     creds: &Credentials,
     addon: &InstalledAddon,
     ignored: bool,
     flavor: Flavor,
+    client_interface: Option<u32>,
 ) -> UpdateStatus {
     if ignored {
         return UpdateStatus::Ignored;
@@ -115,6 +117,7 @@ pub async fn check_one(
             folder: &addon.folder,
             installed: addon.installed.as_ref(),
             flavor,
+            client_interface,
         };
         match fetch_latest(http, creds, source, hint).await {
             Ok(release) => return compare(addon, release),
@@ -161,8 +164,10 @@ pub async fn check_all(
     creds: &Credentials,
     addons: &Arc<Vec<InstalledAddon>>,
     flavor: Flavor,
+    client_interface: Option<u32>,
 ) -> Vec<UpdateReport> {
-    run(http, manifest, creds, addons, flavor, (0..addons.len()).collect()).await
+    let all = (0..addons.len()).collect();
+    run(http, manifest, creds, addons, flavor, client_interface, all).await
 }
 
 /// Check only the addons whose folder is in `folders`, with the same bound
@@ -178,6 +183,7 @@ pub async fn check_folders(
     creds: &Credentials,
     addons: &Arc<Vec<InstalledAddon>>,
     flavor: Flavor,
+    client_interface: Option<u32>,
     folders: &[String],
 ) -> Vec<UpdateReport> {
     let wanted = addons
@@ -186,7 +192,7 @@ pub async fn check_folders(
         .filter(|(_, a)| folders.contains(&a.folder))
         .map(|(i, _)| i)
         .collect();
-    run(http, manifest, creds, addons, flavor, wanted).await
+    run(http, manifest, creds, addons, flavor, client_interface, wanted).await
 }
 
 /// One check run over `addons[i]` for every `i` in `indices`. Each task gets
@@ -198,6 +204,7 @@ async fn run(
     creds: &Credentials,
     addons: &Arc<Vec<InstalledAddon>>,
     flavor: Flavor,
+    client_interface: Option<u32>,
     indices: Vec<usize>,
 ) -> Vec<UpdateReport> {
     // A new run asks every endpoint afresh.
@@ -218,7 +225,7 @@ async fn run(
         handles.push(tokio::spawn(async move {
             let _permit = sem.acquire_owned().await.expect("semaphore closed");
             let addon = &addons[i];
-            let status = check_one(&http, &creds, addon, ignored, flavor).await;
+            let status = check_one(&http, &creds, addon, ignored, flavor, client_interface).await;
             UpdateReport {
                 folder: addon.folder.clone(),
                 status,
@@ -263,7 +270,15 @@ mod tests {
     #[tokio::test]
     async fn keyed_only_sources_without_keys_explain_themselves() {
         let a = addon("## Version: 1\n## X-Wago-ID: abc\n## X-Curse-Project-ID: 5\n");
-        let s = check_one(&Http::new(), &Credentials::default(), &a, false, Flavor::Retail).await;
+        let s = check_one(
+            &Http::new(),
+            &Credentials::default(),
+            &a,
+            false,
+            Flavor::Retail,
+            None,
+        )
+        .await;
         assert_eq!(
             s,
             UpdateStatus::Error("API key needed for CurseForge (see README)".into())
@@ -297,6 +312,7 @@ mod tests {
             &Credentials::default(),
             &library(),
             Flavor::Retail,
+            None,
         )
         .await;
         let got: Vec<(&str, &UpdateStatus)> = r.iter().map(|r| (r.folder.as_str(), &r.status)).collect();
@@ -319,6 +335,7 @@ mod tests {
             &Credentials::default(),
             &library(),
             Flavor::Retail,
+            None,
             &wanted,
         )
         .await;
@@ -331,6 +348,7 @@ mod tests {
             &Credentials::default(),
             &library(),
             Flavor::Retail,
+            None,
             &[],
         )
         .await;
@@ -346,6 +364,7 @@ mod tests {
             download: None,
             digest: None,
             provider: String::new(),
+            interfaces: None,
         };
         assert!(UpdateStatus::Manual("https://zygorguides.com/".into()).needs_attention());
         assert!(UpdateStatus::NoSource.needs_attention());
@@ -364,15 +383,15 @@ mod tests {
         let c = Credentials::default();
         let a = addon("## X-Website: https://zygorguides.com/\n");
         assert_eq!(
-            check_one(&http, &c, &a, false, Flavor::Retail).await,
+            check_one(&http, &c, &a, false, Flavor::Retail, None).await,
             UpdateStatus::Manual("https://zygorguides.com/".into())
         );
         assert_eq!(
-            check_one(&http, &c, &a, true, Flavor::Retail).await,
+            check_one(&http, &c, &a, true, Flavor::Retail, None).await,
             UpdateStatus::Ignored
         );
         assert_eq!(
-            check_one(&http, &c, &addon("## Title: x\n"), false, Flavor::Retail).await,
+            check_one(&http, &c, &addon("## Title: x\n"), false, Flavor::Retail, None).await,
             UpdateStatus::NoSource
         );
     }

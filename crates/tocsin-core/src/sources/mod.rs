@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::addon::{Compat, Flavor};
 use crate::http::Http;
 use crate::toc::Toc;
 use crate::version::Version;
@@ -189,6 +190,22 @@ pub struct Release {
     /// first source may have failed and a fallback answered instead; the GUI
     /// says so, because the fallback may have no direct download.
     pub provider: String,
+    /// The `## Interface` builds the provider says `download` was made for,
+    /// on the game asked for (a Classic client's own progression only), when
+    /// it says: a GitHub release built with the packager carries a
+    /// `release.json` that lists them. `None` when the provider does not say.
+    pub interfaces: Option<Vec<u32>>,
+}
+
+impl Release {
+    /// What the provider says about `download` on this client, when it says
+    /// anything (see [`Release::interfaces`]): the same reading as a search
+    /// result's fit, so the GUI can show "Out of date" or "Newer build".
+    pub fn fit(&self, flavor: Flavor, client_interface: Option<u32>) -> Option<Compat> {
+        self.interfaces
+            .as_deref()
+            .map(|codes| Compat::listed(codes, flavor, client_interface))
+    }
 }
 
 /// A checksum published by the provider for a release file.

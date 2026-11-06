@@ -211,19 +211,70 @@ impl Http {
                 source,
             })
         };
-        if let Some(bytes) = self.cached(&cache_key) {
-            return decode(&bytes);
-        }
-        let gate = self.lock_for(&cache_key);
-        let _guard = gate.lock().await;
-        if let Some(bytes) = self.cached(&cache_key) {
-            return decode(&bytes);
-        }
-        let bytes = self.fetch_capped(parsed, headers, MAX_BODY_BYTES).await?;
-        if let Ok(mut c) = self.cache.lock() {
-            c.insert(cache_key, bytes.clone());
-        }
+        let bytes = self
+            .cached_or_fetch(&cache_key, || self.fetch_capped(parsed, headers, MAX_BODY_BYTES))
+            .await?;
         decode(&bytes)
+    }
+
+    /// The per-run cache in front of `fetch`: a hit never touches the
+    /// network, and concurrent callers for the same key wait for the first
+    /// fetch instead of all hitting the network.
+    async fn cached_or_fetch<F, Fut>(&self, key: &str, fetch: F) -> Result<Bytes, HttpError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<Bytes, HttpError>>,
+    {
+        if let Some(bytes) = self.cached(key) {
+            return Ok(bytes);
+        }
+        let gate = self.lock_for(key);
+        let _guard = gate.lock().await;
+        if let Some(bytes) = self.cached(key) {
+            return Ok(bytes);
+        }
+        let bytes = fetch().await?;
+        if let Ok(mut c) = self.cache.lock() {
+            c.insert(key.to_string(), bytes.clone());
+        }
+        Ok(bytes)
+    }
+
+    /// GET a small JSON file published beside a release's zips (the
+    /// packager's `release.json` on GitHub) and decode it.
+    ///
+    /// It lives where the zips live, so it goes through the downloads client:
+    /// the first host and every redirect hop are checked against
+    /// `download::ALLOWED_HOSTS` (`github.com` → its asset CDN), and where
+    /// the body comes from is checked again. Otherwise an API answer: the
+    /// same [`MAX_BODY_BYTES`] cap, a short timeout instead of a zip's, no
+    /// token, and cached per run like [`Http::get_json`], since every folder
+    /// of a family (BigWigs has eleven) asks for the same file.
+    pub async fn get_json_asset<T: DeserializeOwned>(&self, url: &str) -> Result<T, HttpError> {
+        let parsed = parse_https(url)?;
+        let host = parsed.host_str().unwrap_or("server").to_string();
+        if !crate::download::is_trusted_host(&host) {
+            return Err(HttpError::UntrustedRedirect(host));
+        }
+        let fetch = || async {
+            let resp = self
+                .downloads
+                .get(parsed)
+                .header("Accept", "application/json")
+                .timeout(Duration::from_secs(20))
+                .send()
+                .await?;
+            let landed = resp.url().host_str().unwrap_or_default();
+            if resp.url().scheme() != "https" || !crate::download::is_trusted_host(landed) {
+                return Err(HttpError::UntrustedRedirect(landed.to_string()));
+            }
+            read_capped(resp, host, MAX_BODY_BYTES).await
+        };
+        let bytes = self.cached_or_fetch(url, fetch).await?;
+        serde_json::from_slice(&bytes).map_err(|source| HttpError::Json {
+            url: url.to_string(),
+            source,
+        })
     }
 
     /// GET `url` and decode the JSON body, bypassing the response cache.

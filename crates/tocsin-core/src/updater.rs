@@ -137,6 +137,7 @@ pub async fn prepare_new(
         folder: target.key,
         installed: None,
         flavor: target.flavor,
+        client_interface: target.client_interface,
     };
     let release = fetch_latest(http, creds, source, hint).await?;
     let Downloaded { path, sha256, .. } = fetch_zip(http, target, source, &release).await?;
@@ -371,6 +372,7 @@ mod tests {
                 download: None,
                 digest: None,
                 provider: "CurseForge".into(),
+                interfaces: None,
             },
             zip: PathBuf::new(),
             sha256: String::new(),
