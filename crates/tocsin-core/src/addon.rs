@@ -456,55 +456,28 @@ fn pick_toc(listing: &DirListing, folder: &str, suffixes: &[&str]) -> Option<Pic
     }
     candidates.sort();
 
-    let lower_folder = folder.to_ascii_lowercase();
+    let names: Vec<&str> = candidates
+        .iter()
+        .filter_map(|p| p.file_name().and_then(|n| n.to_str()))
+        .collect();
+    if let Some((name, for_flavor)) = pick_toc_name(&names, folder, suffixes) {
+        return Some(PickedToc {
+            path: listing.dir().join(name),
+            for_flavor,
+            misnamed: None,
+        });
+    }
+
     let stem = |p: &PathBuf| {
         p.file_stem()
             .and_then(|s| s.to_str())
             .map(str::to_ascii_lowercase)
             .unwrap_or_default()
     };
-    // "weakauras_cata" → ("weakauras", Some("cata")); "details" → ("details", None)
     let split = |s: &str| -> (String, Option<String>) {
-        for suf in KNOWN_SUFFIXES {
-            for sep in ['_', '-'] {
-                if let Some(base) = s.strip_suffix(&format!("{sep}{suf}")) {
-                    return (base.to_string(), Some((*suf).to_string()));
-                }
-            }
-        }
-        (s.to_string(), None)
+        let (base, suffix) = split_suffix(s);
+        (base.to_string(), suffix.map(str::to_string))
     };
-
-    // 1) Folder_Suffix.toc / Folder-Suffix.toc for the requested flavor.
-    for suffix in suffixes {
-        if let Some(p) = candidates.iter().find(|p| {
-            let s = stem(p);
-            s == format!("{lower_folder}_{suffix}") || s == format!("{lower_folder}-{suffix}")
-        }) {
-            return Some(PickedToc {
-                path: p.clone(),
-                for_flavor: true,
-                misnamed: None,
-            });
-        }
-    }
-    // 2) Plain Folder.toc: flavor-less, loads everywhere.
-    if let Some(p) = candidates.iter().find(|p| stem(p) == lower_folder) {
-        return Some(PickedToc {
-            path: p.clone(),
-            for_flavor: true,
-            misnamed: None,
-        });
-    }
-    // 3) Folder_OtherFlavor.toc: right addon, wrong game (WeakAuras shipped
-    //    without a Retail .toc). Not for this flavor, but the name matches.
-    if let Some(p) = candidates.iter().find(|p| split(&stem(p)).0 == lower_folder) {
-        return Some(PickedToc {
-            path: p.clone(),
-            for_flavor: false,
-            misnamed: None,
-        });
-    }
     // 4) Any .toc: the folder is misnamed (source zip "Details-Damage-Meter-x/Details.toc").
     //    Prefer the flavor-less or flavor-matching one to name the expected folder.
     let best = candidates
@@ -529,6 +502,52 @@ fn pick_toc(listing: &DirListing, folder: &str, suffixes: &[&str]) -> Option<Pic
         for_flavor,
         misnamed: Some(expected),
     })
+}
+
+/// Which of a folder's `.toc` file names the client loads, given its game
+/// types (most specific first): `Folder_<type>.toc` (or `Folder-<type>.toc`),
+/// then the flavor-less `Folder.toc`, then the folder's `.toc` for another
+/// game. Returns the name and whether it is meant for this client. Shared by
+/// the scan (files on disk) and the install check (files in a zip): Questie
+/// ships `Questie.toc` (`## Interface: 00000`) beside `Questie_Forever.toc`,
+/// and only the latter says what a Forever client gets.
+pub(crate) fn pick_toc_name<'a>(
+    names: &[&'a str],
+    folder: &str,
+    suffixes: &[&str],
+) -> Option<(&'a str, bool)> {
+    let folder = folder.to_ascii_lowercase();
+    let stems: Vec<(&'a str, String)> = names
+        .iter()
+        .filter_map(|n| {
+            let lower = n.to_ascii_lowercase();
+            lower.strip_suffix(".toc").map(|s| (*n, s.to_string()))
+        })
+        .collect();
+    let find = |want: &dyn Fn(&str) -> bool| stems.iter().find(|(_, s)| want(s)).map(|(n, _)| *n);
+    for suffix in suffixes {
+        let found = find(&|s: &str| s == format!("{folder}_{suffix}") || s == format!("{folder}-{suffix}"));
+        if let Some(name) = found {
+            return Some((name, true));
+        }
+    }
+    if let Some(name) = find(&|s: &str| s == folder) {
+        return Some((name, true));
+    }
+    // WeakAuras shipped without a Retail .toc: right addon, wrong game.
+    find(&|s: &str| split_suffix(s).0 == folder).map(|name| (name, false))
+}
+
+/// `"weakauras_cata"` → `("weakauras", Some("cata"))`; `"details"` → `("details", None)`.
+fn split_suffix(stem: &str) -> (&str, Option<&'static str>) {
+    for suf in KNOWN_SUFFIXES {
+        for sep in ['_', '-'] {
+            if let Some(base) = stem.strip_suffix(suf).and_then(|b| b.strip_suffix(sep)) {
+                return (base, Some(suf));
+            }
+        }
+    }
+    (stem, None)
 }
 
 /// Scan an `AddOns` directory for the given flavor.

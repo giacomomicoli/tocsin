@@ -290,7 +290,11 @@ pub fn install(addons_dir: &Path, zip: &Path, req: &Request<'_>) -> Result<Outco
     let manifest = archive::inspect(zip)?;
     // At least one folder must be for this flavor (or declare nothing). For
     // Classic, for the client's own progression: a TBC zip does not load on Wrath.
-    let fits = manifest.folders.values().any(|toc| {
+    // Each folder is judged by the `.toc` this client loads, not the first in the zip.
+    let fits = manifest.folders.keys().any(|folder| {
+        let toc = manifest
+            .toc_for(folder, req.flavor, req.client_interface)
+            .unwrap_or_default();
         !matches!(
             Compat::listed(&toc.interface_versions(), req.flavor, req.client_interface),
             Compat::OtherFlavor
@@ -975,6 +979,42 @@ mod tests {
         // Build unknown: only the flavor can be judged, and it is Classic.
         install(&addons, &z, &classic(None)).unwrap();
         assert!(addons.join("Foo").join("Foo_TBC.toc").exists());
+    }
+
+    /// Questie 11.x: one `.toc` per game, the plain one a placeholder
+    /// (`00000`) first in the zip. The check reads the one the client loads.
+    const QUESTIE: &[(&str, &str)] = &[
+        ("Questie/Questie.toc", "## Interface: 00000\n"),
+        ("Questie/Questie_Camelot.toc", "## Interface: 16001\n"),
+        ("Questie/Questie_Cata.toc", "## Interface: 40402\n"),
+        ("Questie/Questie_Forever.toc", "## Interface: 16001\n"),
+        ("Questie/Questie_Mists.toc", "## Interface: 50503, 50504\n"),
+        ("Questie/Questie_TBC.toc", "## Interface: 20506\n"),
+        ("Questie/Questie_Vanilla.toc", "## Interface: 11508, 11509\n"),
+        ("Questie/Questie_Wrath.toc", "## Interface: 38002\n"),
+    ];
+
+    #[test]
+    fn judges_each_folder_by_the_toc_its_client_loads() {
+        let tmp = tempfile::tempdir().unwrap();
+        let z = make_zip(tmp.path(), "questie.zip", QUESTIE);
+        let tbc_only = make_zip(tmp.path(), "tbc.zip", &QUESTIE[5..6]);
+        let try_on = |zip: &Path, flavor, client_interface| {
+            let addons = tempfile::tempdir().unwrap();
+            let req = Request {
+                flavor,
+                client_interface,
+                ..req("Questie", "1")
+            };
+            install(addons.path(), zip, &req).map(|_| ())
+        };
+        try_on(&z, Flavor::Forever, Some(16001)).unwrap();
+        try_on(&z, Flavor::Vanilla, Some(11508)).unwrap();
+        try_on(&z, Flavor::Classic, Some(50504)).unwrap();
+        // A Wrath client gets Questie_Wrath.toc, not the Mists or TBC one.
+        try_on(&z, Flavor::Classic, Some(38002)).unwrap();
+        let err = try_on(&tbc_only, Flavor::Forever, Some(16001)).unwrap_err();
+        assert!(matches!(err, InstallError::WrongFlavor("Forever")));
     }
 
     #[test]

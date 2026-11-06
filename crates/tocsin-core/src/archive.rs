@@ -16,6 +16,7 @@ use std::path::{Component, Path, PathBuf};
 
 use zip::ZipArchive;
 
+use crate::addon::{pick_toc_name, Flavor};
 use crate::toc::Toc;
 
 /// Caps against zip bombs. ElvUI is ~3 000 files / 60 MiB unpacked.
@@ -24,6 +25,11 @@ const MAX_UNPACKED: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_FILE: u64 = 256 * 1024 * 1024;
 /// A `.toc` is a few KiB; anything larger is not one we want to parse.
 const MAX_TOC: u64 = 1024 * 1024;
+/// `.toc` files kept per folder: one per game type and the plain one
+/// (Questie ships eight). Past that, the rest are not read.
+const MAX_TOCS_PER_FOLDER: usize = 16;
+/// `.toc` bytes read from one zip, all folders together.
+const MAX_TOC_TOTAL: u64 = 16 * 1024 * 1024;
 
 /// Errors while inspecting or extracting.
 #[derive(Debug, thiserror::Error)]
@@ -51,12 +57,28 @@ pub enum ArchiveError {
 /// What a zip contains at its root.
 #[derive(Debug, Clone)]
 pub struct Manifest {
-    /// Top-level folders, each with its parsed `.toc` (Retail game types).
+    /// Top-level folders, each with the `.toc` a Retail client would load.
     pub folders: BTreeMap<String, Toc>,
     /// Total unpacked size.
     pub unpacked: u64,
     /// Number of entries.
     pub entries: usize,
+    /// Every `.toc` read, per folder: file name and content.
+    toc_files: BTreeMap<String, Vec<(String, String)>>,
+}
+
+impl Manifest {
+    /// The `.toc` of `folder` that a client of `flavor` (build `interface`,
+    /// when known) would load, parsed for its game types. `None` when the
+    /// folder's `.toc` could not be read (too large).
+    pub fn toc_for(&self, folder: &str, flavor: Flavor, interface: Option<u32>) -> Option<Toc> {
+        let files = self.toc_files.get(folder)?;
+        let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
+        let game_types = flavor.game_types(interface);
+        let (name, _) = pick_toc_name(&names, folder, game_types)?;
+        let (_, body) = files.iter().find(|(n, _)| n == name)?;
+        Some(Toc::parse_for(body, game_types))
+    }
 }
 
 /// Read the zip's directory and validate it. No data is decompressed.
@@ -69,7 +91,8 @@ pub fn inspect(zip_path: &Path) -> Result<Manifest, ArchiveError> {
 
     let mut unpacked: u64 = 0;
     let mut tops: BTreeMap<String, bool> = BTreeMap::new(); // name → has <Name>*.toc
-    let mut toc_bodies: BTreeMap<String, String> = BTreeMap::new();
+    let mut toc_files: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    let mut toc_total: u64 = 0;
 
     for i in 0..archive.len() {
         let entry = archive.by_index_raw(i).map_err(|_| ArchiveError::Invalid)?;
@@ -109,15 +132,19 @@ pub fn inspect(zip_path: &Path) -> Result<Manifest, ArchiveError> {
             let fname = rel.file_name().and_then(|f| f.to_str()).unwrap_or("");
             if is_toc_for(fname, &top) {
                 *has_toc = true;
-                if entry.size() <= MAX_TOC && !toc_bodies.contains_key(&top) {
+                let kept = toc_files.entry(top.clone()).or_default();
+                let room = kept.len() < MAX_TOCS_PER_FOLDER && toc_total < MAX_TOC_TOTAL;
+                if entry.size() <= MAX_TOC && room {
                     // Read this one small file now; we need its metadata.
+                    let fname = fname.to_string();
                     drop(entry);
                     let f = archive.by_index(i).map_err(|_| ArchiveError::Invalid)?;
                     let mut raw = Vec::new();
                     // The declared size is the zip author's word: a `.toc`
                     // listed as 1 KiB may inflate to gigabytes.
                     copy_capped(f, &mut raw, MAX_TOC)?;
-                    toc_bodies.insert(top.clone(), String::from_utf8_lossy(&raw).into_owned());
+                    toc_total = toc_total.saturating_add(raw.len() as u64);
+                    kept.push((fname, String::from_utf8_lossy(&raw).into_owned()));
                 }
             }
         }
@@ -138,19 +165,20 @@ pub fn inspect(zip_path: &Path) -> Result<Manifest, ArchiveError> {
             return Err(ArchiveError::SourceZip(only));
         }
     }
-    let mut folders = BTreeMap::new();
-    for (top, has_toc) in tops {
-        if !has_toc {
-            return Err(ArchiveError::NotAnAddon(format!("folder {top} has no .toc")));
-        }
-        let toc = toc_bodies.get(&top).map(|b| Toc::parse(b)).unwrap_or_default();
-        folders.insert(top, toc);
+    if let Some((top, _)) = tops.iter().find(|(_, has_toc)| !**has_toc) {
+        return Err(ArchiveError::NotAnAddon(format!("folder {top} has no .toc")));
     }
-    Ok(Manifest {
-        folders,
+    let mut manifest = Manifest {
+        folders: BTreeMap::new(),
         unpacked,
         entries: archive.len(),
-    })
+        toc_files,
+    };
+    for top in tops.into_keys() {
+        let toc = manifest.toc_for(&top, Flavor::Retail, None).unwrap_or_default();
+        manifest.folders.insert(top, toc);
+    }
+    Ok(manifest)
 }
 
 /// Extract every entry into `staging` (created if missing). Entry paths are
