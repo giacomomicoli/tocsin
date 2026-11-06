@@ -22,6 +22,20 @@ pub struct Version {
 /// Pre-release markers with their rank. Lower rank = earlier in the cycle.
 const MARKERS: &[(&str, u8)] = &[("alpha", 0), ("dev", 0), ("pre", 1), ("beta", 1), ("rc", 2)];
 
+/// Where pre-release `marker` starts in `lower`, counting only a marker that
+/// follows the first digit and does not continue a word. A file title brings
+/// the addon's name along, and names hold these letters: "Warcraft" has
+/// "rc", "Preydator" has "pre", "DevTool" has "dev". Taken as markers, they
+/// made `WarcraftLogs-2.1.0.zip` a pre-release with no numbers at all.
+fn marker_at(lower: &str, marker: &str) -> Option<usize> {
+    let first_digit = lower.find(|c: char| c.is_ascii_digit())?;
+    let bytes = lower.as_bytes();
+    lower
+        .match_indices(marker)
+        .map(|(at, _)| at)
+        .find(|&at| at > first_digit && !bytes[at - 1].is_ascii_alphabetic())
+}
+
 /// Archive extensions a file title standing in for a version ends with.
 const ARCHIVE_EXTS: &[&str] = &[".tar.gz", ".zip", ".7z", ".rar"];
 
@@ -85,7 +99,7 @@ impl Version {
         // excluded from the numeric comparison: 2.0.0-beta1 must sort below 2.0.0.
         let marker = MARKERS
             .iter()
-            .filter_map(|(m, rank)| lower.find(m).map(|at| (at, *rank, m.len())))
+            .filter_map(|(m, rank)| marker_at(&lower, m).map(|at| (at, *rank, m.len())))
             .min_by_key(|(at, _, _)| *at);
         let (numeric_part, pre) = match marker {
             Some((at, rank, len)) => (&lower[..at], Some((rank, digit_runs(&lower[at + len..])))),
@@ -216,6 +230,23 @@ mod tests {
     }
 
     #[test]
+    fn marker_letters_in_a_name_are_not_a_pre_release() {
+        // "Warcraft" holds "rc", "Preydator" "pre", "DevTool" "dev".
+        assert_eq!(v("WarcraftLogs-2.1.0.zip").numbers(), &[2, 1, 0]);
+        assert_eq!(v("WarcraftLogs-2.1.0.zip"), v("2.1.0"));
+        assert!(v("Preydator-1.2.3") < v("Preydator-1.2.4"));
+        assert_eq!(v("DevTool-1.0.5"), v("1.0.5"));
+        // A word that merely contains a marker, after the number.
+        assert_eq!(v("1.0-srcpack"), v("1.0"));
+        // Real markers still count, with or without a separator.
+        assert!(v("WarcraftLogs-2.1.0-beta2.zip") < v("WarcraftLogs-2.1.0.zip"));
+        assert!(v("1.2rc1") < v("1.2"));
+        assert!(v("3.0-pre2") < v("3.0"));
+        assert!(v("1.0.0.dev5") < v("1.0.0"));
+        assert!(v("12.0.380-beta") < v("12.0.380"));
+    }
+
+    #[test]
     fn labels_drop_the_file_name_around_a_version() {
         // CurseForge file titles (issue #14).
         assert_eq!(v("AztarecHelper-2.9.0.zip").label(), "2.9.0");
@@ -254,13 +285,13 @@ mod tests {
         // 5.12.0 for what compares as 2.5.12.0.
         assert_eq!(v("WeakAuras2-5.12.0").label(), "WeakAuras2-5.12.0");
         assert_eq!(v("Bartender4_4.15.3.zip").label(), "Bartender4_4.15.3.zip");
-        // A pre-release marker inside the name ("Prey" → "pre") makes the
-        // whole text compare as a pre-release: shown as written.
-        assert_eq!(v("Preydator-1.2.3.zip").label(), "Preydator-1.2.3.zip");
+        // Marker letters in the name are not a pre-release: cleaned like any other.
+        assert_eq!(v("Preydator-1.2.3.zip").label(), "1.2.3");
         for raw in [
             "AztarecHelper-2.9.0.zip",
             "Details-Retail-v12.0.376",
             "ElvUI 13.80",
+            "WarcraftLogs-2.1.0-beta2.zip",
         ] {
             assert_eq!(v(v(raw).label()), v(raw));
         }
