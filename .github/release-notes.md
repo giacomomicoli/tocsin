@@ -12,6 +12,16 @@ window the first time (click *More info*, then *Run anyway*), and PCs with
 Smart App Control turned on won't run it. See
 [Why the releases aren't signed](https://github.com/giacomomicoli/tocsin#why-the-releases-arent-signed).
 
+### 0.2.1 — hotfix
+
+- **Fixed: Install refused an addon that search had confirmed for your
+  game.** Some addons ship a separate file for each game inside the zip
+  (Questie has eight). Tocsin checked only the first one it found, so with
+  WoW Forever selected, Questie showed the *Forever* badge but Install
+  answered "this package is not for Forever". Tocsin now checks the file
+  your game actually loads, the same one it reads for the addons you
+  already have. ([#23](https://github.com/giacomomicoli/tocsin/issues/23))
+
 ### What's new in 0.2.0
 
 - **Search knows which game you play.** *Get addons* now searches for the
