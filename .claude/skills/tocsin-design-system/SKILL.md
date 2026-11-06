@@ -92,7 +92,8 @@ the system first (step 4 below), then use it.
   (`guidelines/*.card.html`) and `readme.md`.
 - Check contrast in Void and Sunwell (switch in Settings → Theme).
 - A request that breaks the system (a pill shape, a gradient text, a new
-  font, an emoji, Blizzard art) is answered with what the system offers
+  font, an emoji, Blizzard art beyond the sidebar's game icon read from
+  the user's install) is answered with what the system offers
   instead; extend the system only when the user agrees.
 
 ## Design stays out of the logic

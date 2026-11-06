@@ -155,13 +155,13 @@ pub(crate) fn read_regular_file(path: &Path, max: u64) -> std::io::Result<Bounde
 }
 
 #[cfg(unix)]
-fn same_file(checked: &std::fs::Metadata, opened: &std::fs::Metadata) -> bool {
+pub(crate) fn same_file(checked: &std::fs::Metadata, opened: &std::fs::Metadata) -> bool {
     use std::os::unix::fs::MetadataExt;
     checked.dev() == opened.dev() && checked.ino() == opened.ino()
 }
 
 #[cfg(not(unix))]
-fn same_file(_: &std::fs::Metadata, _: &std::fs::Metadata) -> bool {
+pub(crate) fn same_file(_: &std::fs::Metadata, _: &std::fs::Metadata) -> bool {
     true
 }
 

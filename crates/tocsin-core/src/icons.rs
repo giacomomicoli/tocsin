@@ -121,8 +121,7 @@ fn sniff(bytes: &[u8]) -> Option<ImageFormat> {
 }
 
 /// Decode `bytes` within the limits above and fill a [`SIDE`] square with
-/// it, cropping the longer side: WoWInterface thumbnails are screenshots,
-/// rarely square. Blocking: call it off the async workers.
+/// it ([`square`]). Blocking: call it off the async workers.
 pub fn decode(bytes: &[u8]) -> Result<Icon, IconError> {
     let format = sniff(bytes).ok_or(IconError::Format)?;
     let mut limits = Limits::default();
@@ -132,13 +131,63 @@ pub fn decode(bytes: &[u8]) -> Result<Icon, IconError> {
     let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
     reader.limits(limits);
     let picture = reader.decode().map_err(|e| IconError::Decode(e.to_string()))?;
+    Ok(square(picture))
+}
+
+/// Decode the 32-bit bitmap picture of a Windows icon resource, as
+/// [`decode`] does a PNG: within [`MAX_SIDE`], to a [`SIDE`] square.
+///
+/// Windows icons keep every size but the 256px one as a bitmap: a
+/// `BITMAPINFOHEADER`, then BGRA rows bottom-up, then a 1-bit mask (which a
+/// 32-bit picture does not need: its alpha says the same). Retail's
+/// `Wow.exe` has nothing else, 48px at most (November 2026). Older kinds (8
+/// or 24 bits, compressed) are refused.
+pub fn decode_icon_bitmap(dib: &[u8]) -> Result<Icon, IconError> {
+    let field = |at: usize| Some(u32::from_le_bytes(dib.get(at..at + 4)?.try_into().ok()?));
+    let bits = dib.get(14..16).map(|b| u16::from_le_bytes([b[0], b[1]]));
+    let (Some(header), Some(width), Some(height)) = (field(0), field(4), field(8)) else {
+        return Err(IconError::Format);
+    };
+    if header < 40 || bits != Some(32) || field(16) != Some(0) {
+        return Err(IconError::Format);
+    }
+    // Square, bottom-up (a negative height would be top-down), and the
+    // height counts the mask rows too. A negative width is huge as a u32.
+    if width == 0 || width > MAX_SIDE || height != width * 2 {
+        return Err(IconError::Decode("unexpected icon bitmap size".into()));
+    }
+    let side = width as usize;
+    let start = usize::try_from(header).map_err(|_| IconError::Format)?;
+    let rows = start
+        .checked_add(side * side * 4)
+        .and_then(|end| dib.get(start..end))
+        .ok_or_else(|| IconError::Decode("icon bitmap is cut short".into()))?;
+    let mut rgba = Vec::with_capacity(rows.len());
+    for row in rows.chunks_exact(side * 4).rev() {
+        for px in row.chunks_exact(4) {
+            rgba.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+        }
+    }
+    // Saved without alpha: the mask would say what shows, but such an icon
+    // is old enough that an opaque square is the honest picture of it.
+    if rgba.chunks_exact(4).all(|p| p[3] == 0) {
+        rgba.chunks_exact_mut(4).for_each(|p| p[3] = 255);
+    }
+    let picture = image::RgbaImage::from_raw(width, width, rgba)
+        .ok_or_else(|| IconError::Decode("icon bitmap is cut short".into()))?;
+    Ok(square(image::DynamicImage::ImageRgba8(picture)))
+}
+
+/// Fill a [`SIDE`] square with `picture`, cropping the longer side:
+/// WoWInterface thumbnails are screenshots, rarely square.
+fn square(picture: image::DynamicImage) -> Icon {
     let square = picture
         .resize_to_fill(SIDE, SIDE, FilterType::Triangle)
         .into_rgba8();
-    Ok(Icon {
+    Icon {
         side: SIDE,
         rgba: square.into_raw(),
-    })
+    }
 }
 
 /// Fetch and decode the icon at `url` (a [`crate::search::Hit::icon`]).
@@ -377,6 +426,56 @@ mod tests {
         assert!(wide.len() < MAX_ICON_BYTES);
         assert!(matches!(decode(&wide), Err(IconError::Decode(_))));
         assert!(decode(&encoded(MAX_SIDE, 1, ImageFormat::Png)).is_ok());
+    }
+
+    /// A 32-bit icon bitmap of `side` pixels, every pixel `bgra`, mask after.
+    fn icon_bitmap(side: u32, bgra: [u8; 4]) -> Vec<u8> {
+        let mut dib = vec![0u8; 40];
+        dib[0..4].copy_from_slice(&40u32.to_le_bytes());
+        dib[4..8].copy_from_slice(&side.to_le_bytes());
+        dib[8..12].copy_from_slice(&(side * 2).to_le_bytes());
+        dib[12..14].copy_from_slice(&1u16.to_le_bytes());
+        dib[14..16].copy_from_slice(&32u16.to_le_bytes());
+        for _ in 0..side * side {
+            dib.extend_from_slice(&bgra);
+        }
+        dib.extend(vec![0u8; (side.div_ceil(32) * 4 * side) as usize]);
+        dib
+    }
+
+    #[test]
+    fn icon_bitmaps_become_a_square() {
+        // Retail's 48px picture: blue, half transparent.
+        let icon = decode_icon_bitmap(&icon_bitmap(48, [200, 10, 20, 128])).unwrap();
+        assert_eq!(icon.side, SIDE);
+        assert_eq!(&icon.rgba[..4], &[20, 10, 200, 128]);
+        // No alpha at all: shown opaque rather than not at all.
+        let icon = decode_icon_bitmap(&icon_bitmap(16, [1, 2, 3, 0])).unwrap();
+        assert_eq!(&icon.rgba[..4], &[3, 2, 1, 255]);
+    }
+
+    #[test]
+    fn odd_icon_bitmaps_are_refused() {
+        let good = icon_bitmap(32, [0, 0, 0, 255]);
+        let with = |at: usize, value: u32| {
+            let mut b = good.clone();
+            b[at..at + 4].copy_from_slice(&value.to_le_bytes());
+            b
+        };
+        // 24 bits a pixel, compressed, not square, too large, top-down.
+        let mut bits24 = good.clone();
+        bits24[14] = 24;
+        assert!(matches!(decode_icon_bitmap(&bits24), Err(IconError::Format)));
+        assert!(matches!(decode_icon_bitmap(&with(16, 3)), Err(IconError::Format)));
+        assert!(decode_icon_bitmap(&with(8, 48)).is_err());
+        assert!(decode_icon_bitmap(&with(4, MAX_SIDE + 1)).is_err());
+        assert!(decode_icon_bitmap(&with(8, (-64i32) as u32)).is_err());
+        // A header claiming to be longer than the file, a cut file, nothing.
+        assert!(decode_icon_bitmap(&with(0, u32::MAX)).is_err());
+        assert!(decode_icon_bitmap(&good[..200]).is_err());
+        assert!(matches!(decode_icon_bitmap(&[]), Err(IconError::Format)));
+        // A PNG is not a bitmap.
+        assert!(decode_icon_bitmap(&encoded(32, 32, ImageFormat::Png)).is_err());
     }
 
     const LOGO: &str = "https://media.forgecdn.net/avatars/thumbnails/1/2/256/256/3.png";

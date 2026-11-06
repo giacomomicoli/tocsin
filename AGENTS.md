@@ -13,7 +13,9 @@ The workspace has two crates:
 
 - `crates/tocsin-core` — library, no GUI: `.toc` parsing, discovery heuristics,
   version comparison, update sources, families, secrets, addon icons
-  (`icons.rs`: allowed hosts, capped download, limited decode, disk cache).
+  (`icons.rs`: allowed hosts, capped download, limited decode, disk cache),
+  the game's own icon (`game_icon.rs`: capped reads of the executable's
+  resources, decoded by `icons.rs`).
 - `crates/tocsin` — the iced GUI. Thin: state, messages, views. Logic lives in core.
   `app.rs` holds state, `update` and the window frame; each page's view is a
   child module (`app/library.rs`, `app/discover.rs`, `app/settings.rs`), the
@@ -61,8 +63,11 @@ When goals conflict, they rank in this order.
    - Images from the network are untrusted input: they are decoded only by
      `icons::decode` (format from the first bytes, PNG or JPEG only, side and
      memory limits), off the UI thread, and reach the GUI as RGBA. The GUI
-     never decodes a downloaded file. Bundled assets (fonts, logos) are
-     compiled in with `include_bytes!`; nothing is read from disk for them.
+     never decodes a downloaded file. The game's icon, read from its
+     executable, is untrusted the same way: `icons::decode` for a PNG,
+     `icons::decode_icon_bitmap` for a bitmap, under the same limits.
+     Bundled assets (fonts, logos) are compiled in with `include_bytes!`;
+     nothing is read from disk for them.
    - Sending data to a provider is a privacy change: what a request reveals
      about the user's addons (search terms, the CurseForge ids of the logo
      lookup) is listed in the "Security posture" section of `docs/technical.md`.

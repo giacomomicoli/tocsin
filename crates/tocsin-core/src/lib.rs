@@ -16,6 +16,7 @@ pub mod detect;
 pub mod discover;
 pub mod download;
 pub mod family;
+pub mod game_icon;
 pub mod http;
 pub mod icons;
 pub mod install;

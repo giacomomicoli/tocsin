@@ -93,7 +93,7 @@ fn is_game_dir(dir: &Path) -> bool {
 
 /// Windows executables of every flavor, as Battle.net writes them (WoW
 /// Forever ships `Wow.exe`, the Classic beta `WowB.exe`), and their ARM builds.
-const GAME_EXES: &[&str] = &[
+pub(crate) const GAME_EXES: &[&str] = &[
     "Wow.exe",
     "WowT.exe",
     "WowB.exe",
