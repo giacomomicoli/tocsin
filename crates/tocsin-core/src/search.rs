@@ -9,7 +9,7 @@
 
 use std::collections::HashSet;
 
-use crate::addon::{Flavor, InstalledAddon};
+use crate::addon::{Compat, Flavor, InstalledAddon};
 use crate::http::Http;
 use crate::sources::wowinterface::{self, Catalog};
 use crate::sources::{curseforge, github, tukui, Credentials, SourceError, SourceRef};
@@ -81,6 +81,12 @@ pub struct Hit {
     /// The provider says it hands no file to apps (a CurseForge author's
     /// choice): installing means opening the page.
     pub site_only: bool,
+    /// What the provider says about this game client, from the game
+    /// versions it lists for the project ([`Compat::listed`]). Hits for
+    /// other games are dropped, so this is never [`Compat::OtherFlavor`];
+    /// [`Compat::Unknown`] when the provider lists no version (GitHub,
+    /// many WoWInterface files) or the game's build is unknown.
+    pub compat: Compat,
 }
 
 /// One addon and every provider that offers it. Never empty; the first hit is
@@ -120,6 +126,17 @@ impl Found {
         };
         of(|s| matches!(s, SourceRef::CurseForge { .. }))
             .or_else(|| of(|s| matches!(s, SourceRef::WowInterface { .. })))
+    }
+
+    /// Whether at least one site says it offers this addon for the game
+    /// client, at this build or another one of the same game.
+    pub fn confirmed(&self) -> bool {
+        self.hits.iter().any(|h| {
+            matches!(
+                h.compat,
+                Compat::Exact | Compat::Older { .. } | Compat::Newer { .. }
+            )
+        })
     }
 }
 
@@ -186,12 +203,17 @@ pub fn clean_query(raw: &str) -> Option<String> {
 /// Ask every provider we can for `query`, concurrently (four requests at
 /// most, under the checker's bound), and merge the answers. WoWInterface is
 /// searched in `catalog`, downloaded on first use.
+///
+/// `flavor` and `client_interface` (the game's build, `120105`, when known)
+/// describe the game client: results for other games are dropped, and each
+/// hit says how its site's versions fit this one ([`Hit::compat`]).
 pub async fn search(
     http: &Http,
     creds: &Credentials,
     catalog: &Catalog,
     query: &str,
     flavor: Flavor,
+    client_interface: Option<u32>,
 ) -> Outcome {
     let Some(query) = clean_query(query) else {
         return Outcome::default();
@@ -200,13 +222,13 @@ pub async fn search(
     let (cf, wi, gh, tk) = tokio::join!(
         async {
             match creds.curseforge.as_deref() {
-                Some(key) => Some(curseforge::search(http, key, q, flavor).await),
+                Some(key) => Some(curseforge::search(http, key, q, flavor, client_interface).await),
                 None => None,
             }
         },
-        wowinterface::search(http, catalog, q, flavor),
+        wowinterface::search(http, catalog, q, flavor, client_interface),
         github::search(http, creds, q),
-        tukui::search(http, q),
+        tukui::search(http, q, flavor, client_interface),
     );
 
     let mut out = Outcome::default();
@@ -401,6 +423,16 @@ pub(crate) fn year_of_millis(ms: u64) -> Option<u16> {
     u16::try_from(year).ok()
 }
 
+/// `## Interface` codes of the game versions a provider lists (`"12.1.5"`
+/// → `120105`); labels like `"Retail"` are skipped.
+pub(crate) fn interface_codes<'a>(versions: impl IntoIterator<Item = &'a str>) -> Vec<u32> {
+    versions
+        .into_iter()
+        .filter_map(crate::client::parse_version)
+        .map(|(ma, mi, pa)| ma * 10000 + mi * 100 + pa)
+        .collect()
+}
+
 /// A provider's download count, which may come as a float (`1.2E8`).
 pub(crate) fn downloads(n: Option<f64>) -> Option<Popularity> {
     n.filter(|n| n.is_finite() && *n >= 0.0)
@@ -424,6 +456,7 @@ mod tests {
             updated: None,
             icon: None,
             site_only: false,
+            compat: Compat::Unknown,
         }
     }
 
@@ -528,6 +561,36 @@ mod tests {
             }
             .icon(),
             None
+        );
+    }
+
+    #[test]
+    fn confirmed_when_any_site_lists_the_game() {
+        let with = |h: Hit, compat: Compat| Hit { compat, ..h };
+        // GitHub never says; WoWInterface listed nothing: unconfirmed.
+        let unverified = Found {
+            hits: vec![wowi(1, "Bagnon", &[], &[]), gh("Jaliborc", "Bagnon")],
+        };
+        assert!(!unverified.confirmed());
+        // One site lists the game, even at an older build: confirmed.
+        let older = Found {
+            hits: vec![
+                with(cf(1, "Bagnon", &[], None), Compat::Older { built_for: 120100 }),
+                gh("Jaliborc", "Bagnon"),
+            ],
+        };
+        assert!(older.confirmed());
+        let exact = Found {
+            hits: vec![with(wowi(1, "Bagnon", &[], &[]), Compat::Exact)],
+        };
+        assert!(exact.confirmed());
+    }
+
+    #[test]
+    fn interface_codes_skip_labels() {
+        assert_eq!(
+            interface_codes(["12.1.5", "Retail", "1.60.1", "3.80.2", "12.1"]),
+            [120105, 16001, 38002]
         );
     }
 

@@ -72,7 +72,8 @@ async fn main() -> anyhow::Result<()> {
     // Blocking keychain read: fine here, there is no UI thread to stall.
     let creds = tocsin_core::checker::credentials(&manifest);
     let addons = Arc::new(lib.addons);
-    for r in check_all(&http, &manifest, &creds, &addons, lib.client.flavor).await {
+    let (flavor, build) = (lib.client.flavor, lib.client.interface());
+    for r in check_all(&http, &manifest, &creds, &addons, flavor, build).await {
         let extra = match &r.status {
             UpdateStatus::Outdated(rel)
             | UpdateStatus::UpToDate(rel)

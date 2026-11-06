@@ -36,6 +36,11 @@ Most of them also say where the addon is published: a CurseForge project, a
 WoWInterface page, a GitHub link. Tocsin reads that, asks the site for the
 latest version, and compares it with the one you have.
 
+Most GitHub releases are built with the BigWigs packager, which publishes a
+small file saying which games each zip is for. Tocsin reads it before
+downloading anything: you get the zip made for your game, and the list says
+when it is for an older or newer build than yours.
+
 If the addon doesn't say, Tocsin looks for a link in its changelog or readme.
 If there's simply no one to ask (addons sold on the author's own site, like
 Zygor), it tells you to check by hand and gives you the link.
@@ -158,6 +163,23 @@ time. An addon available on several sites shows up once, with one line per
 site, so you can choose where to get it from. Each line shows how popular it
 is and the year it was last updated, which is handy to spot an old copy
 someone forgot on one of them.
+
+Results are for the game you have selected: addons a site offers only for
+other versions of WoW are left out. Each site line also says what that site
+knows about your game:
+
+- the game's name (*Retail*, *Classic Era*, *Classic*, *Forever*): the site
+  lists a file for your game at its current build. When Tocsin does not
+  know your game's build, it means the site lists a file for your game;
+- *Out of date*: the site's file is for an older build of your game, which
+  the game shows as out of date but still loads;
+- *Newer build*: the file is for a newer build than the one you have;
+- *Unverified*: the site doesn't say which game the file is for. GitHub
+  never does in search (a release built with the packager says so once
+  Tocsin looks at it), and many WoWInterface files don't either.
+
+Click the **?** next to it for the details. Tocsin checks the downloaded zip
+on **Install** anyway, and refuses one with nothing for your game.
 
 Tocsin remembers where you installed an addon from and keeps checking there.
 Addons you already have are marked *Installed*. Search runs when you press

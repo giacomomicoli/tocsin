@@ -4,6 +4,7 @@
 use iced::widget::{column, container, row, text, text_input, Column};
 use iced::{Alignment, Element, Fill, Length, Padding, Theme};
 
+use tocsin_core::addon::Compat;
 use tocsin_core::{InstalledAddon, SourceRef, UpdateStatus};
 
 use super::widgets::{self, badge, icon_slot, monogram};
@@ -316,12 +317,28 @@ impl App {
                 .then(|| Message::Rollback(a.folder.clone())),
         );
 
-        let detail: Option<String> = match status {
-            Some(UpdateStatus::Error(e)) => Some(e.clone()),
-            Some(UpdateStatus::Manual(url)) => Some(format!("Check {url}")),
-            Some(UpdateStatus::Outdated(r)) if r.download.is_none() && !a.disabled => {
-                Some(format!("{} offers no direct download — use Open", r.provider))
-            }
+        // A line under the name when there is something to say about the
+        // update: an error, a page to check, a zip to fetch by hand, or a
+        // release the site says is for another build of this game (a GitHub
+        // release built with the packager says).
+        // TODO(design): search shows the fit as a badge; the library row has
+        // one badge column, so a second badge needs the system extended.
+        let detail: Option<(String, Tone)> = match status {
+            Some(UpdateStatus::Error(e)) => Some((e.clone(), Tone::Update)),
+            Some(UpdateStatus::Manual(url)) => Some((format!("Check {url}"), Tone::Update)),
+            Some(UpdateStatus::Outdated(r)) if r.download.is_none() && !a.disabled => Some((
+                format!("{} offers no direct download — use Open", r.provider),
+                Tone::Update,
+            )),
+            Some(UpdateStatus::Outdated(r)) => match r.fit(self.flavor, self.client_interface) {
+                Some(fit @ Compat::Older { .. }) => {
+                    Some((fit.describe(self.flavor, self.client_interface), Tone::Update))
+                }
+                Some(fit @ Compat::Newer { .. }) => {
+                    Some((fit.describe(self.flavor, self.client_interface), Tone::Ahead))
+                }
+                _ => None,
+            },
             _ => None,
         };
 
@@ -335,8 +352,8 @@ impl App {
                 .style(meta_style),
         ]
         .spacing(2);
-        if let Some(d) = detail {
-            name_col = name_col.push(text(d).size(size::META).style(theme::tone(Tone::Update)));
+        if let Some((d, tone)) = detail {
+            name_col = name_col.push(text(d).size(size::META).style(theme::tone(tone)));
         }
         for issue in &a.issues {
             let style: fn(&Theme) -> text::Style = if issue.is_blocking() {

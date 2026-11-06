@@ -40,6 +40,14 @@ Which game and build a folder belongs to comes from Blizzard's own
 `.flavor.info` and `.build.info` files, so Retail, Classic Era, Classic and
 WoW Classic Forever are told apart exactly, and sources that publish one file
 per flavor (CurseForge, GitHub release assets) are asked for the right one.
+A GitHub release built with the BigWigs packager carries a `release.json`
+beside its zips, saying which games and builds each zip was made for; Tocsin
+reads it, takes the zip listed for your game (a Classic client only one of
+its own progression, Titan apart from Wrath), and shows when that zip is for
+an older or newer build than yours, as search does. Without the file, or
+when it lists nothing for your game, the zip is picked by its name
+(`-classic`, `-cata`, `-forever`…) as before, and the `.toc` inside is
+checked on install.
 The build number decides first: Blizzard reuses product codes for other
 games (`wow_classic_beta` carried the Mists beta, then WoW Forever 1.60;
 `wow_classic_era_ptr` tests TBC Anniversary). The product code, then the
@@ -78,6 +86,18 @@ query shows up, including ports for private servers, and whether a
 repository publishes a release zip is only known when you press *Install*.
 Search runs when you press Enter, not while you type: GitHub allows ten
 searches a minute without a token.
+
+Each catalog lists the game versions a project has files for: CurseForge
+per file (`latestFilesIndexes`), Tukui one per client (`patch`), WoWInterface
+the versions an author marked it compatible with (half the catalog has none).
+Those are compared with the selected client (`Compat::listed`): a project
+listed only for other games is dropped, and each hit says whether its site
+lists this build, an older or a newer one, or nothing at all (*Unverified*,
+always so on GitHub). A Classic client counts only its own progression:
+ElvUI lists TBC and Mists builds but no Wrath one, so a Wrath client does
+not see it. CurseForge is also asked for the client's version type, so its
+twenty answers are the most popular for that game; for Classic the build
+picks the progression, and nothing is sent while the build is unknown.
 
 ## Overriding the guess
 
@@ -168,6 +188,13 @@ that way:
   the host it was sent to, and a download may only hop between the
   providers' own hosts (GitHub → its asset CDN, say), over HTTPS, three hops
   at most.
+- Checking a GitHub addon whose release carries the packager's
+  `release.json` costs one more request: that small JSON file, fetched from
+  where the zips are (`github.com`, redirected to its asset CDN) under the
+  download hosts' redirect rules, the 1 MiB body cap, a short timeout, and
+  without the token. It is asked once per run, however many folders share
+  the release. A file that is missing, too large or not what the packager
+  writes only means the zip is picked by its name.
 - Downloads come only from the providers' own hosts; a zip is inspected
   before extraction (no `..`, absolute paths, symlinks, Windows device names
   such as `CON` or `aux.lua`, names ending in a dot or space, dot-folders at
@@ -179,8 +206,12 @@ that way:
   silently: when the zip ships folders you already have (a bundled `Ace3`
   or `LibStub`, say) Tocsin names them and asks first.
 - A search sends what you typed (trimmed, 64 characters at most) to the
-  GitHub and CurseForge search endpoints, and nothing else about you or your
-  addons; WoWInterface and Tukui are searched locally in their catalogs.
+  GitHub and CurseForge search endpoints, and nothing else about your
+  addons. CurseForge also gets which game client you play, as its version
+  type id (`gameVersionTypeId`: Retail, Classic Era, Forever, or the Classic
+  progression your build belongs to), so that its twenty answers are the
+  most popular for that game; GitHub gets nothing about the client.
+  WoWInterface and Tukui are searched locally in their catalogs.
   Installing a result goes through the same download checks as an update.
 - Addon icons come only from `media.forgecdn.net` (CurseForge logos) and
   `cdn-wow.mmoui.com` (WoWInterface thumbnails), over HTTPS, checked on

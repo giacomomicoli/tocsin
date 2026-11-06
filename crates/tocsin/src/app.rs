@@ -72,8 +72,12 @@ struct Discover {
     /// repository without releases): their rows offer only Open. Search
     /// cannot tell for GitHub without one more request per result.
     site_only: HashSet<SourceRef>,
-    /// The result line whose "Site only" explanation is open, if any.
+    /// The result line whose "?" explanation (its fit to the game, and why
+    /// it is site only) is open, if any.
     tip: Option<SourceRef>,
+    /// Show only results a site confirms for this game client, and those
+    /// installed already; `false` shows everything found.
+    strict: bool,
     /// A downloaded result that would replace folders already on disk,
     /// waiting for the user to say "Replace" or "Cancel".
     confirm: Option<Box<PendingInstall>>,
@@ -330,8 +334,12 @@ pub enum Message {
     /// Install a search result from the source the user picked: (source, name).
     /// Downloads and inspects first; see [`Message::Prepared`].
     InstallFrom(SourceRef, String),
-    /// Open the "why site only?" explanation of a result's line, or close it.
+    /// Open the explanation of a result's line (its fit to the game, why it
+    /// is site only), or close it.
     ToggleTip(SourceRef),
+    /// Show only results a site confirms for this game client (`true`), or
+    /// everything found.
+    DiscoverStrict(bool),
     /// A search result is downloaded: (name, result). Installed right away
     /// unless it would replace folders already there. A failure carries the
     /// source when it has nothing to download at all.
@@ -831,8 +839,9 @@ impl App {
                 let http = self.http.clone();
                 let catalog = self.catalog.clone();
                 let flavor = self.flavor;
+                let client_interface = self.client_interface;
                 Task::perform(
-                    async move { search::search(&http, &creds, &catalog, &query, flavor).await },
+                    async move { search::search(&http, &creds, &catalog, &query, flavor, client_interface).await },
                     move |out| Message::DiscoverFound(seq, out),
                 )
             }
@@ -944,6 +953,10 @@ impl App {
                     Some(open) if open == source => None,
                     _ => Some(source),
                 };
+                Task::none()
+            }
+            Message::DiscoverStrict(strict) => {
+                self.discover.strict = strict;
                 Task::none()
             }
             Message::Prepared(name, Err((e, site_only))) => {
@@ -1181,14 +1194,17 @@ impl App {
         let http = self.http.clone();
         let manifest = self.manifest.clone();
         let addons = Arc::clone(&self.addons);
-        let flavor = self.flavor;
+        let (flavor, build) = (self.flavor, self.client_interface);
         let gen = self.lib_gen;
         Task::perform(
             async move {
                 match scope {
-                    CheckScope::All => checker::check_all(&http, &manifest, &creds, &addons, flavor).await,
+                    CheckScope::All => {
+                        checker::check_all(&http, &manifest, &creds, &addons, flavor, build).await
+                    }
                     CheckScope::Folders(folders) => {
-                        checker::check_folders(&http, &manifest, &creds, &addons, flavor, &folders).await
+                        checker::check_folders(&http, &manifest, &creds, &addons, flavor, build, &folders)
+                            .await
                     }
                 }
             },
@@ -1465,6 +1481,24 @@ impl App {
             cancel_icons(&mut self.icons, batch);
         }
         self.recount();
+        self.clear_results();
+    }
+
+    /// Forget the search results: each hit's fit was judged for the client
+    /// of the old installation, and drawn against the new one it would lie.
+    /// The bumped `seq` drops a search still running for the old client;
+    /// the query text stays, ready to run again.
+    fn clear_results(&mut self) {
+        let d = &mut self.discover;
+        d.seq += 1;
+        d.searching = false;
+        d.outcome = search::Outcome::default();
+        d.searched = None;
+        d.tip = None;
+        d.strict = false;
+        if let Some(batch) = d.icon_batch.take() {
+            cancel_icons(&mut self.icons, batch);
+        }
     }
 
     fn save_manifest(&self) {

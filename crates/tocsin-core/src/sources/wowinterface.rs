@@ -13,9 +13,9 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Deserializer};
 
 use super::{Digest, Release, SourceError, SourceRef};
-use crate::addon::Flavor;
+use crate::addon::{Compat, Flavor};
 use crate::http::Http;
-use crate::search::{simplify, simplify_name, Hit, Popularity, PER_PROVIDER};
+use crate::search::{interface_codes, simplify, simplify_name, Hit, Popularity, PER_PROVIDER};
 use crate::version::Version;
 
 #[derive(Debug, Deserialize)]
@@ -49,6 +49,7 @@ pub async fn latest(http: &Http, id: u64) -> Result<Release, SourceError> {
             .filter(|h| h.len() == 32 && h.chars().all(|c| c.is_ascii_hexdigit()))
             .map(Digest::Md5),
         provider: String::new(),
+        interfaces: None,
     })
 }
 
@@ -141,13 +142,7 @@ impl Entry {
         if name.is_empty() {
             return None;
         }
-        let interfaces = l
-            .compatibility
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|c| crate::client::parse_version(&c.version))
-            .map(|(ma, mi, pa)| ma * 10000 + mi * 100 + pa)
-            .collect();
+        let interfaces = interface_codes(l.compatibility.iter().flatten().map(|c| c.version.as_str()));
         Some(Self {
             id,
             key: simplify_name(&name),
@@ -169,13 +164,16 @@ impl Entry {
         })
     }
 
-    /// Unmarked files are kept: better a result than a silent omission.
-    fn serves(&self, flavor: Flavor) -> bool {
-        self.interfaces.is_empty() || self.interfaces.iter().any(|&c| Flavor::of_interface(c) == flavor)
+    /// How the versions the file is marked compatible with fit this client.
+    /// Half the catalog is unmarked: those are [`Compat::Unknown`] and kept,
+    /// better a result than a silent omission.
+    fn compat(&self, flavor: Flavor, client_interface: Option<u32>) -> Compat {
+        Compat::listed(&self.interfaces, flavor, client_interface)
     }
 
-    fn hit(&self) -> Hit {
+    fn hit(&self, compat: Compat) -> Hit {
         Hit {
+            compat,
             source: SourceRef::WowInterface { id: self.id },
             name: self.name.clone(),
             // The catalog carries no description; a merged entry shows the
@@ -272,23 +270,25 @@ fn thumbs_of(entries: &[Entry], ids: &[u64]) -> Vec<(u64, String)> {
         .collect()
 }
 
-/// Search the catalog for `flavor`.
+/// Search the catalog for this game client.
 pub async fn search(
     http: &Http,
     catalog: &Catalog,
     query: &str,
     flavor: Flavor,
+    client_interface: Option<u32>,
 ) -> Result<Vec<Hit>, SourceError> {
     let entries = catalog.entries(http).await?;
-    Ok(matching(&entries, query, flavor))
+    Ok(matching(&entries, query, flavor, client_interface))
 }
 
 /// The catalog has no relevance of its own, so: names equal to the query,
 /// then names starting with it, then containing it, then files that ship a
 /// folder named like it (`dbm` finds Deadly Boss Mods through `DBM-Core`);
 /// within each, most downloaded *this month* first, which puts maintained
-/// addons ahead of abandoned ones with a large lifetime total.
-fn matching(entries: &[Entry], query: &str, flavor: Flavor) -> Vec<Hit> {
+/// addons ahead of abandoned ones with a large lifetime total. Files marked
+/// for other games only are dropped.
+fn matching(entries: &[Entry], query: &str, flavor: Flavor, client_interface: Option<u32>) -> Vec<Hit> {
     let q = simplify(query);
     if q.is_empty() {
         return Vec::new();
@@ -306,16 +306,16 @@ fn matching(entries: &[Entry], query: &str, flavor: Flavor) -> Vec<Hit> {
             None
         }
     };
-    let mut found: Vec<(u8, &Entry)> = entries
+    let mut found: Vec<(u8, Compat, &Entry)> = entries
         .iter()
-        .filter(|e| e.serves(flavor))
-        .filter_map(|e| tier(e).map(|t| (t, e)))
+        .filter_map(|e| tier(e).map(|t| (t, e.compat(flavor, client_interface), e)))
+        .filter(|(_, compat, _)| *compat != Compat::OtherFlavor)
         .collect();
-    found.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.monthly.cmp(&a.1.monthly)));
+    found.sort_by(|a, b| a.0.cmp(&b.0).then(b.2.monthly.cmp(&a.2.monthly)));
     found
         .into_iter()
         .take(PER_PROVIDER)
-        .map(|(_, e)| e.hit())
+        .map(|(_, compat, e)| e.hit(compat))
         .collect()
 }
 
@@ -376,7 +376,10 @@ mod tests {
     #[test]
     fn exact_names_first_then_monthly_downloads() {
         let names = |q: &str, f: Flavor| -> Vec<String> {
-            matching(&entries(), q, f).into_iter().map(|h| h.name).collect()
+            matching(&entries(), q, f, None)
+                .into_iter()
+                .map(|h| h.name)
+                .collect()
         };
         // Bagnon's 2019 upload is marked for 8.1.0 only: no game today runs
         // it, so Retail does not offer it. Unmarked Broker Bagnon stays.
@@ -392,7 +395,7 @@ mod tests {
 
     #[test]
     fn hits_carry_folders_and_year() {
-        let h = &matching(&entries(), "deadly boss mods", Flavor::Retail)[0];
+        let h = &matching(&entries(), "deadly boss mods", Flavor::Retail, None)[0];
         assert_eq!(h.source, SourceRef::WowInterface { id: 8814 });
         assert_eq!(h.folders, ["DBM-Core", "DBM-StatusBarTimers"]);
         assert_eq!(h.updated, Some(2025));
@@ -402,7 +405,43 @@ mod tests {
             h.icon.as_deref(),
             Some("https://cdn-wow.mmoui.com/preview/tiny/pvw20498.png")
         );
-        assert_eq!(matching(&entries(), "ctmod", Flavor::Retail)[0].icon, None);
+        assert_eq!(matching(&entries(), "ctmod", Flavor::Retail, None)[0].icon, None);
+    }
+
+    #[test]
+    fn hits_say_how_the_marked_versions_fit_the_client() {
+        // Deadly Boss Mods' marks as the catalog listed them on 2026-11-06,
+        // the duplicate included.
+        let json = r#"[{"UID":"8814","UIName":"Deadly Boss Mods","UIAuthorName":"MysticalOS",
+            "UICompatibility":[{"version":"11.2.0","name":"Ghosts of K'aresh"},{"version":"1.15.7","name":"Classic"},
+              {"version":"4.4.2","name":"Cataclysm Classic"},{"version":"4.4.2","name":"Cataclysm Classic"},
+              {"version":"3.4.3","name":"WOTLK Patch"},{"version":"2.5.4","name":"TBC Patch"}]},
+            {"UID":"13475","UIName":"Deadly Boss Mods skin","UICompatibility":null}]"#;
+        let listed: Vec<Listed> = serde_json::from_str(json).unwrap();
+        let entries: Vec<Entry> = listed.into_iter().filter_map(Entry::from_listed).collect();
+        let fits = |flavor, client_interface| -> Vec<(String, Compat)> {
+            matching(&entries, "deadly boss mods", flavor, client_interface)
+                .into_iter()
+                .map(|h| (h.name, h.compat))
+                .collect()
+        };
+        let dbm = |c| ("Deadly Boss Mods".to_string(), c);
+        let skin = ("Deadly Boss Mods skin".to_string(), Compat::Unknown);
+        assert_eq!(
+            fits(Flavor::Retail, Some(120105)),
+            [dbm(Compat::Older { built_for: 110200 }), skin.clone()]
+        );
+        assert_eq!(
+            fits(Flavor::Classic, Some(40402)),
+            [dbm(Compat::Exact), skin.clone()]
+        );
+        assert_eq!(
+            fits(Flavor::Vanilla, Some(11507)),
+            [dbm(Compat::Exact), skin.clone()]
+        );
+        // Nothing marked for Mists or for Forever: only the unmarked file.
+        assert_eq!(fits(Flavor::Classic, Some(50504)), std::slice::from_ref(&skin));
+        assert_eq!(fits(Flavor::Forever, Some(16001)), [skin]);
     }
 
     #[test]
