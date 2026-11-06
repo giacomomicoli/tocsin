@@ -200,7 +200,8 @@ them.
 
 ### More than one game
 
-Every game folder you add (Retail, Classic, …) appears in the sidebar; click
+Every game folder you add (Retail, Classic, …) appears in the sidebar, with
+the game's own icon read from its executable (Tocsin ships none); click
 one to switch. To stop managing one, select it and click **Remove folder** at
 the top of the library (or the **×** that appears when you hover it in the
 sidebar, or *Remove* in *Settings → Game Folders*): Tocsin asks first, then

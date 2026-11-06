@@ -13,13 +13,13 @@ use iced::{Alignment, Element, Fill, Padding, Subscription, Task, Theme};
 use tocsin_core::addon::Flavor;
 use tocsin_core::family::{self, Family};
 use tocsin_core::http::{self, Http};
-use tocsin_core::icons;
 use tocsin_core::search::{self, Found, Installed};
 use tocsin_core::secrets::{self, KeyStatus, Secret};
 use tocsin_core::sources::wowinterface::Catalog;
 use tocsin_core::sources::{curseforge, Credentials};
 use tocsin_core::updater::{self, Prepared, Target};
 use tocsin_core::{checker, detect, InstalledAddon, Manifest, SourceRef, UpdateReport, UpdateStatus};
+use tocsin_core::{game_icon, icons};
 
 /// Downloaded zips older than this are swept from the cache at startup.
 const CACHE_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
@@ -268,6 +268,9 @@ pub struct App {
     /// The sidebar logo, decoded once: a handle made in `view` would get a
     /// new id, and the PNG decoded again, on every frame.
     lockup: image::Handle,
+    /// The game's own icon of each installation in the sidebar, by AddOns
+    /// folder, read from its executable; missing ones keep the monogram.
+    game_icons: HashMap<PathBuf, image::Handle>,
     /// Search and library icons by URL (at most [`MAX_ICONS`]).
     icons: HashMap<String, IconState>,
     /// Icon URL of each library addon, by folder.
@@ -330,6 +333,9 @@ pub enum Message {
     DiscoverFound(u64, search::Outcome),
     /// An icon arrived (or will not): (its URL, the decoded picture).
     IconLoaded(String, Result<icons::Icon, String>),
+    /// The game's icon of an installation was read: (its AddOns folder, the
+    /// picture, if its executable has one).
+    GameIconRead(PathBuf, Option<icons::Icon>),
     /// CurseForge logos of library projects: (ids asked, (id, URL) found).
     LogosFound(Vec<u64>, Vec<(u64, String)>),
     /// WoWInterface thumbnails of library files, from the loaded catalog.
@@ -432,6 +438,7 @@ impl App {
             tick: 0,
             dark: true,
             lockup: image::Handle::from_bytes(theme::LOCKUP_PNG),
+            game_icons: HashMap::new(),
             icons: HashMap::new(),
             library_icons: HashMap::new(),
             logos: HashMap::new(),
@@ -452,7 +459,8 @@ impl App {
         } else {
             app.update(Message::Scan)
         };
-        let task = Task::batch([app.load_creds(), prune_cache(), scan]);
+        let icons = read_game_icons(app.manifest.settings.game_folders.clone());
+        let task = Task::batch([app.load_creds(), prune_cache(), icons, scan]);
         (app, task)
     }
 
@@ -877,6 +885,15 @@ impl App {
                 };
                 Task::none()
             }
+            Message::GameIconRead(dir, icon) => {
+                // Kept only for a folder still in the list: it may have been
+                // removed while its executable was read.
+                if let Some(icon) = icon.filter(|_| self.manifest.settings.game_folders.contains(&dir)) {
+                    let handle = image::Handle::from_rgba(icon.side, icon.side, icon.rgba);
+                    self.game_icons.insert(dir, handle);
+                }
+                Task::none()
+            }
             Message::LogosFound(asked, found) => {
                 self.logos_asked.extend(asked);
                 self.logos.extend(found);
@@ -1065,15 +1082,17 @@ impl App {
                         } else {
                             // Say which one: a root with several versions picks Retail.
                             let added = format!("{} game folder added.", detect::label_of(&dir));
-                            folders.push(dir);
+                            folders.push(dir.clone());
                             let first = folders.len() == 1;
                             self.save_manifest();
                             self.notice = Some((false, added));
+                            let icon = read_game_icons([dir]);
                             if first {
                                 self.active_folder = 0;
                                 self.screen = Screen::Library;
-                                return self.update(Message::Scan);
+                                return Task::batch([icon, self.update(Message::Scan)]);
                             }
+                            return icon;
                         }
                     }
                     Err(e) => self.notice = Some((true, e.to_string())),
@@ -1526,6 +1545,7 @@ impl App {
             return Task::none();
         };
         self.save_manifest();
+        self.game_icons.remove(&dir);
         self.active_folder = removed.shown;
         let mut task = Task::none();
         if removed.switched {
@@ -1678,14 +1698,20 @@ impl App {
             .split_whitespace()
             .filter_map(|w| w.chars().next())
             .collect();
-        let icon = container(
-            text(initials)
-                .size(theme::size::CONTROL)
-                .font(theme::DISPLAY_BOLD)
-                .style(theme::gold),
-        )
-        .center(theme::space::ICON_HEAD)
-        .style(theme::icon_slot);
+        // The game's own icon when its executable has one; else the
+        // monogram, a size smaller than an addon's, as in the mock.
+        let icon: Element<'a, Message> = match self.game_icons.get(dir) {
+            Some(handle) => widgets::icon_slot(initials, false, false, Some(handle.clone())),
+            None => container(
+                text(initials)
+                    .size(theme::size::CONTROL)
+                    .font(theme::DISPLAY_BOLD)
+                    .style(theme::gold),
+            )
+            .center(theme::space::ICON_HEAD)
+            .style(theme::icon_slot)
+            .into(),
+        };
 
         let mut info = column![text(label).size(theme::size::CONTROL).font(theme::DISPLAY)].spacing(1);
         if active && !self.addons.is_empty() {
@@ -1825,6 +1851,24 @@ fn short_path(addons_dir: &Path) -> String {
     } else {
         shown.display().to_string()
     }
+}
+
+/// Read the game's icon of each installation in `dirs` (AddOns folders) off
+/// the UI thread; each arrives as [`Message::GameIconRead`].
+fn read_game_icons(dirs: impl IntoIterator<Item = PathBuf>) -> Task<Message> {
+    Task::batch(dirs.into_iter().map(|dir| {
+        Task::perform(
+            async move {
+                let read = dir.clone();
+                let icon = tokio::task::spawn_blocking(move || game_icon::read(&read))
+                    .await
+                    .ok()
+                    .flatten();
+                (dir, icon)
+            },
+            |(dir, icon)| Message::GameIconRead(dir, icon),
+        )
+    }))
 }
 
 /// Sweep old downloads and icons from the cache, fire and forget: a crash

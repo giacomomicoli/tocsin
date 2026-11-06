@@ -160,8 +160,18 @@ that way:
   the picked folder is listed one level deep (no further) to find flavor
   folders, and each is accepted only if it has a `.flavor.info` file, a
   WoW executable (`Wow.exe`, `WowClassic.exe`, …) or a `WTF` folder; they
-  are only checked for existence, not read or run, and a link does not
-  count. Outside the game folder: its
+  are only checked for existence, and a link does not count.
+- The game executable of each added folder is opened once per launch (and
+  when the folder is added) for its icon, shown in the sidebar; it is never
+  run. It is about 80 MB and is not read whole: only its PE headers, its
+  resource directory and one icon picture, each piece at most 64 KiB (the
+  picture 256 KiB), at offsets checked against the file and its sections,
+  never through a link, off the interface thread. The picture is decoded by
+  the same code and under the same limits as a downloaded icon: a PNG, or a
+  32-bit icon bitmap (header and size checked, at most 512 pixels a side).
+  Nothing of it is written to disk, and Tocsin ships no Blizzard art: an
+  executable without a usable icon leaves the two letters. Outside the game
+  folder: its
   own `tocsin.toml`, and its cached icons (256 KiB each at most, decoded
   under the same limits as a download). Fonts and logos are built into the
   program; no asset file is read at runtime.
