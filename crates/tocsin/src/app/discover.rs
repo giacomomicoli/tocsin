@@ -4,6 +4,7 @@
 use iced::widget::{column, container, row, space, text, text_input, Column};
 use iced::{Alignment, Element, Fill, Length};
 
+use tocsin_core::addon::Compat;
 use tocsin_core::search::{Found, Hit};
 use tocsin_core::secrets::Secret;
 use tocsin_core::SourceRef;
@@ -20,8 +21,9 @@ impl App {
             Some(dir) => format!("Installs into {} · {}", self.client, dir.display()),
             None => "Add a game folder in Settings to install addons.".to_string(),
         };
+        let placeholder = format!("Search addons for {}…", self.flavor.label());
         let bar = row![
-            text_input("Search addons by name…", &d.query)
+            text_input(&placeholder, &d.query)
                 .on_input(Message::DiscoverQuery)
                 .on_submit(Message::DiscoverSearch)
                 .padding(10)
@@ -78,14 +80,66 @@ impl App {
             let empty = container(text(hint).size(size::CONTROL).style(theme::muted)).center(Fill);
             return page.push(empty).into();
         }
-        let list = d
+        page = page.push(self.results_bar());
+        // Strict hides what no site confirms, but never an addon already
+        // installed: the row still says whether that copy fits this game.
+        // With the game's build unknown nothing is confirmed: no filter then.
+        let strict = d.strict && self.client_interface.is_some();
+        let shown: Vec<&Found> = d
             .outcome
             .results
             .iter()
+            .filter(|f| !strict || f.confirmed() || self.installed.contains(f))
+            .collect();
+        if shown.is_empty() {
+            let hint = format!(
+                "No site confirms these results for {}. Everything found shows them all.",
+                self.flavor.label()
+            );
+            let empty = container(text(hint).size(size::CONTROL).style(theme::muted)).center(Fill);
+            return page.push(empty).into();
+        }
+        let list = shown
+            .into_iter()
             .fold(Column::new().spacing(theme::space::ROW_GAP), |col, f| {
                 col.push(self.found_row(f))
             });
         page.push(widgets::scroll(list)).into()
+    }
+
+    /// "Results for Forever 1.60.1 · 9 confirmed · 4 unverified", with the
+    /// two chips that show only the confirmed ones or everything found.
+    /// With the game's build unknown every hit is unverified: the line says
+    /// so and the chips, which could only empty the list, are left out.
+    fn results_bar(&self) -> Element<'_, Message> {
+        if self.client_interface.is_none() {
+            let summary = format!(
+                "Results for {} · game build unknown, nothing can be confirmed",
+                self.flavor.label()
+            );
+            return text(summary).size(size::META).style(theme::muted).into();
+        }
+        let results = &self.discover.outcome.results;
+        let confirmed = results.iter().filter(|f| f.confirmed()).count();
+        let client = if self.client.is_empty() {
+            self.flavor.label()
+        } else {
+            self.client.as_str()
+        };
+        let summary = format!(
+            "Results for {client} · {confirmed} confirmed · {} unverified",
+            results.len() - confirmed
+        );
+        let strict = self.discover.strict;
+        row![
+            text(summary).size(size::META).style(theme::muted).width(Fill),
+            widgets::chip(format!("Confirmed for {}", self.flavor.label()), strict)
+                .on_press(Message::DiscoverStrict(true)),
+            widgets::chip("Everything found", !strict).on_press(Message::DiscoverStrict(false)),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .into()
     }
 
     /// "This zip replaces folders you have": the names, what happens to them,
@@ -198,25 +252,30 @@ impl App {
                 .into_iter()
                 .chain(h.updated.map(|y| y.to_string()))
                 .collect();
+            // Cut at the edge rather than wrapped: the line stays one row
+            // when the badges leave the facts little room.
+            let facts = container(widgets::one_line(
+                text(facts.join(" · ")).size(size::META).style(theme::muted),
+            ))
+            .width(Fill)
+            .clip(true);
+            let site_only = !installed && (h.site_only || self.discover.site_only.contains(&h.source));
+            let tip_open = self.discover.tip.as_ref() == Some(&h.source);
             let mut line = row![
                 text(h.source.provider())
                     .size(size::CONTROL)
                     .width(Length::Fixed(96.0)),
-                text(facts.join(" · "))
-                    .size(size::META)
-                    .style(theme::muted)
-                    .width(Fill),
+                facts,
+                badge(h.compat.label(self.flavor), fit_tone(h.compat)),
+                // One "?" a line: it explains the fit, and "Site only" too.
+                widgets::help(tip_open, Message::ToggleTip(h.source.clone())),
                 open,
             ]
             .spacing(10)
             .align_y(Alignment::Center);
-            let site_only = !installed && (h.site_only || self.discover.site_only.contains(&h.source));
-            let tip_open = site_only && self.discover.tip.as_ref() == Some(&h.source);
             if site_only {
                 // Nothing to download for an app: Open, beside it, is the way.
-                line = line
-                    .push(badge("Site only", Tone::Manual))
-                    .push(widgets::help(tip_open, Message::ToggleTip(h.source.clone())));
+                line = line.push(badge("Site only", Tone::Manual));
             } else if !installed {
                 let running = self.discover.installing.as_ref() == Some(&h.source);
                 line = line.push(
@@ -232,7 +291,13 @@ impl App {
             }
             sources = sources.push(line);
             if tip_open {
-                sources = sources.push(widgets::tip(site_only_reason(h)));
+                let fit = h.compat.describe(self.flavor, self.client_interface);
+                let body = if site_only {
+                    format!("{}\n\n{fit}", site_only_reason(h))
+                } else {
+                    fit
+                };
+                sources = sources.push(widgets::tip(body));
             }
         }
 
@@ -274,6 +339,20 @@ fn site_only_reason(h: &Hit) -> &'static str {
     }
 }
 
+/// The badge tone of what a site says about this game client: green when it
+/// lists this build, orange for an older one, violet for a newer one, blue
+/// when it does not say. Other games are dropped by the search; red if one
+/// ever slips through.
+fn fit_tone(c: Compat) -> Tone {
+    match c {
+        Compat::Exact => Tone::Ok,
+        Compat::Older { .. } => Tone::Update,
+        Compat::Newer { .. } => Tone::Ahead,
+        Compat::Unknown => Tone::Manual,
+        Compat::OtherFlavor => Tone::Error,
+    }
+}
+
 /// A one-line hint with a button to the Settings page; `warn` tints it.
 fn hint_row<'a>(message: &'a str, warn: bool, action: &'a str) -> Element<'a, Message> {
     let style: fn(&iced::Theme) -> text::Style = if warn {
@@ -288,4 +367,17 @@ fn hint_row<'a>(message: &'a str, warn: bool, action: &'a str) -> Element<'a, Me
     .spacing(10)
     .align_y(Alignment::Center)
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fit_tones_follow_the_status_hues() {
+        assert_eq!(fit_tone(Compat::Exact), Tone::Ok);
+        assert_eq!(fit_tone(Compat::Older { built_for: 120100 }), Tone::Update);
+        assert_eq!(fit_tone(Compat::Newer { built_for: 16002 }), Tone::Ahead);
+        assert_eq!(fit_tone(Compat::Unknown), Tone::Manual);
+    }
 }

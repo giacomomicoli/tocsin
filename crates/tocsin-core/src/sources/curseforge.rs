@@ -8,9 +8,9 @@ use reqwest::Url;
 use serde::Deserialize;
 
 use super::{Release, SourceError};
-use crate::addon::Flavor;
+use crate::addon::{Compat, Flavor};
 use crate::http::Http;
-use crate::search::{author_names, downloads, repo_of, year_of_iso, Hit, PER_PROVIDER};
+use crate::search::{author_names, downloads, interface_codes, repo_of, year_of_iso, Hit, PER_PROVIDER};
 use crate::version::Version;
 
 /// World of Warcraft game id on CurseForge.
@@ -86,6 +86,14 @@ impl SearchMod {
     fn site_only(&self) -> bool {
         self.allow_distribution == Some(false)
     }
+
+    /// How the game versions with a file fit this client. The version
+    /// strings are read, not `gameVersionTypeId`: they say the build too,
+    /// and old files carry no type id.
+    fn compat(&self, flavor: Flavor, client_interface: Option<u32>) -> Compat {
+        let codes = interface_codes(self.indexes.iter().map(|i| i.game_version.as_str()));
+        Compat::listed(&codes, flavor, client_interface)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,26 +151,52 @@ struct Hash {
 /// Whether a file targets `flavor`. Files with no parsable version are
 /// accepted: better a possibly wrong answer than none.
 fn targets(file: &File, flavor: Flavor) -> bool {
-    serves(file.game_versions.iter().map(String::as_str), flavor)
-}
-
-/// Whether any of `versions` (`"12.1.5"`, `"Retail"`, …) belongs to
-/// `flavor`; true when none parses.
-fn serves<'a>(versions: impl Iterator<Item = &'a str>, flavor: Flavor) -> bool {
-    let codes: Vec<u32> = versions
-        .filter_map(crate::client::parse_version)
-        .map(|(ma, mi, pa)| ma * 10000 + mi * 100 + pa)
-        .collect();
+    let codes = interface_codes(file.game_versions.iter().map(String::as_str));
     codes.is_empty() || codes.iter().any(|&c| Flavor::of_interface(c) == flavor)
 }
 
-/// Search WoW projects by name, most popular first, keeping those with a
-/// file for `flavor`.
+/// CurseForge's game version type for this client, sent with a search so
+/// that the twenty projects it answers are the most popular *for this
+/// game*: asked unfiltered, a Classic Era search got the twenty most
+/// popular projects overall, most of them Retail only, and came back
+/// nearly empty once filtered here.
+///
+/// Ids from `GET /v1/games/1/version-types` (read 2026-11-06). Only one
+/// type can be sent, and Classic has five progressions: the build picks
+/// which, and none is sent when the build is unknown (the client-side
+/// filter still applies).
+fn version_type(flavor: Flavor, client_interface: Option<u32>) -> Option<u32> {
+    match flavor {
+        Flavor::Retail => Some(517),    // WoW Retail
+        Flavor::Vanilla => Some(67408), // WoW Classic (Classic Era)
+        Flavor::Forever => Some(88568), // WoW Forever
+        Flavor::Classic => {
+            let code = client_interface?;
+            match (code / 10000, (code / 100) % 100) {
+                (2, _) => Some(73246),                   // Burning Crusade Classic (Anniversary)
+                (3, minor) if minor < 50 => Some(73713), // Wrath of the Lich King Classic
+                (3, _) => Some(81212),                   // Wrath Titan Reforged (3.80.x)
+                (4, _) => Some(77522),                   // Cataclysm Classic
+                (5, _) => Some(79434),                   // Mists of Pandaria Classic
+                _ => None,
+            }
+        }
+    }
+}
+
+/// Search WoW projects by name, most popular first, for this client.
 ///
 /// `GET /v1/mods/search?gameId=1&searchFilter=…&sortField=2&sortOrder=desc`
-/// (sort field 2 is popularity), documented at
+/// (sort field 2 is popularity), plus `gameVersionTypeId` when
+/// [`version_type`] knows it; documented at
 /// <https://docs.curseforge.com/rest-api/#search-mods>.
-pub async fn search(http: &Http, key: &str, query: &str, flavor: Flavor) -> Result<Vec<Hit>, SourceError> {
+pub async fn search(
+    http: &Http,
+    key: &str,
+    query: &str,
+    flavor: Flavor,
+    client_interface: Option<u32>,
+) -> Result<Vec<Hit>, SourceError> {
     let mut url = Url::parse("https://api.curseforge.com/v1/mods/search").expect("static url");
     url.query_pairs_mut()
         .append_pair("gameId", &WOW_GAME_ID.to_string())
@@ -170,15 +204,25 @@ pub async fn search(http: &Http, key: &str, query: &str, flavor: Flavor) -> Resu
         .append_pair("sortField", "2")
         .append_pair("sortOrder", "desc")
         .append_pair("pageSize", &PER_PROVIDER.to_string());
+    if let Some(id) = version_type(flavor, client_interface) {
+        url.query_pairs_mut()
+            .append_pair("gameVersionTypeId", &id.to_string());
+    }
     // Uncached: one URL per query, the per-run cache would only grow.
     let env: SearchEnvelope = http
         .get_json_uncached(url.as_str(), &[("x-api-key", key)])
         .await?;
-    Ok(env
-        .data
+    Ok(hits(env, flavor, client_interface))
+}
+
+/// The projects of a search answer as hits, those for other games dropped.
+fn hits(env: SearchEnvelope, flavor: Flavor, client_interface: Option<u32>) -> Vec<Hit> {
+    env.data
         .into_iter()
-        .filter(|m| serves(m.indexes.iter().map(|i| i.game_version.as_str()), flavor))
-        .map(|m| Hit {
+        .map(|m| (m.compat(flavor, client_interface), m))
+        .filter(|(compat, _)| *compat != Compat::OtherFlavor)
+        .map(|(compat, m)| Hit {
+            compat,
             site_only: m.site_only(),
             source: super::SourceRef::CurseForge { id: m.id },
             url: m
@@ -205,7 +249,7 @@ pub async fn search(http: &Http, key: &str, query: &str, flavor: Flavor) -> Resu
             authors: author_names(&m.authors),
             popularity: downloads(m.download_count),
         })
-        .collect())
+        .collect()
 }
 
 /// Projects asked per logo request: the 20 mods of a search page fit the
@@ -343,13 +387,14 @@ mod tests {
           {"id":8}],
           "pagination":{"index":0,"pageSize":20,"resultCount":3,"totalCount":3}}"#;
         let env: SearchEnvelope = serde_json::from_str(json).unwrap();
-        let retail: Vec<&SearchMod> = env
+        let retail: Vec<u64> = env
             .data
             .iter()
-            .filter(|m| serves(m.indexes.iter().map(|i| i.game_version.as_str()), Flavor::Retail))
+            .filter(|m| m.compat(Flavor::Retail, Some(120001)) != Compat::OtherFlavor)
+            .map(|m| m.id)
             .collect();
         // The era-only project is dropped; one with no index at all is kept.
-        assert_eq!(retail.iter().map(|m| m.id).collect::<Vec<_>>(), [61284, 8]);
+        assert_eq!(retail, [61284, 8]);
         let d = &env.data[0];
         assert_eq!(
             repo_of(d.links.source_url.as_deref()).as_deref(),
@@ -366,6 +411,81 @@ mod tests {
         );
         assert_eq!(thumb(&env.data[1]), None);
         assert_eq!(thumb(&env.data[2]), None);
+    }
+
+    #[test]
+    fn version_types_follow_the_client() {
+        assert_eq!(version_type(Flavor::Retail, None), Some(517));
+        assert_eq!(version_type(Flavor::Retail, Some(120105)), Some(517));
+        assert_eq!(version_type(Flavor::Vanilla, Some(11509)), Some(67408));
+        assert_eq!(version_type(Flavor::Forever, None), Some(88568));
+        // Classic: the build names the progression.
+        let classic = |code| version_type(Flavor::Classic, Some(code));
+        assert_eq!(classic(20506), Some(73246));
+        assert_eq!(classic(30405), Some(73713));
+        assert_eq!(classic(38002), Some(81212));
+        assert_eq!(classic(40402), Some(77522));
+        assert_eq!(classic(50504), Some(79434));
+        assert_eq!(classic(60000), None);
+        assert_eq!(version_type(Flavor::Classic, None), None);
+    }
+
+    /// Details! as `GET /v1/mods/search` answered it on 2026-11-06: one
+    /// file indexed for every client, trimmed to four of its eight entries;
+    /// then a Retail-only plugin, a TBC-only project and one with no index.
+    const SEARCH: &str = r#"{"data":[
+      {"id":61284,"name":"Details! Damage Meter","latestFilesIndexes":[
+        {"fileId":9447255,"filename":"Details-Details.20261104.15400.172.zip","gameVersion":"3.4.5","gameVersionTypeId":73713,"releaseType":1},
+        {"fileId":9447255,"filename":"Details-Details.20261104.15400.172.zip","gameVersion":"5.5.4","gameVersionTypeId":79434,"releaseType":1},
+        {"fileId":9447255,"filename":"Details-Details.20261104.15400.172.zip","gameVersion":"1.60.1","gameVersionTypeId":88568,"releaseType":1},
+        {"fileId":9447255,"filename":"Details-Details.20261104.15400.172.zip","gameVersion":"12.1.5","gameVersionTypeId":517,"releaseType":1}]},
+      {"id":75162,"name":"Details!: Death Graphs","latestFilesIndexes":[
+        {"fileId":7315891,"filename":"Details_DeathGraphs-v11.2.7.134.zip","gameVersion":"11.2.7","gameVersionTypeId":517,"releaseType":1},
+        {"fileId":6856338,"filename":"Details_DeathGraphs-v11.2.0.133.zip","gameVersion":"11.2.0","gameVersionTypeId":517,"releaseType":1}]},
+      {"id":465000,"name":"TBC only","latestFilesIndexes":[
+        {"fileId":8401886,"gameVersion":"2.5.6","gameVersionTypeId":73246,"releaseType":1},
+        {"fileId":8401886,"gameVersion":"2.5.5","gameVersionTypeId":null}]},
+      {"id":8,"name":"No index"}]}"#;
+
+    fn fits(flavor: Flavor, client_interface: Option<u32>) -> Vec<(u64, Compat)> {
+        let env: SearchEnvelope = serde_json::from_str(SEARCH).unwrap();
+        hits(env, flavor, client_interface)
+            .into_iter()
+            .map(|h| match h.source {
+                super::super::SourceRef::CurseForge { id } => (id, h.compat),
+                _ => unreachable!(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn search_hits_say_how_they_fit_the_client() {
+        assert_eq!(
+            fits(Flavor::Retail, Some(120105)),
+            [
+                (61284, Compat::Exact),
+                (75162, Compat::Older { built_for: 110207 }),
+                (8, Compat::Unknown)
+            ]
+        );
+        assert_eq!(
+            fits(Flavor::Forever, Some(16001)),
+            [(61284, Compat::Exact), (8, Compat::Unknown)]
+        );
+        // A TBC client: Details! lists Wrath and Mists, not TBC.
+        assert_eq!(
+            fits(Flavor::Classic, Some(20506)),
+            [(465000, Compat::Exact), (8, Compat::Unknown)]
+        );
+        // Build unknown: the flavor still filters, nothing is confirmed.
+        assert_eq!(
+            fits(Flavor::Classic, None),
+            [
+                (61284, Compat::Unknown),
+                (465000, Compat::Unknown),
+                (8, Compat::Unknown)
+            ]
+        );
     }
 
     #[test]

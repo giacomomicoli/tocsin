@@ -79,6 +79,18 @@ repository publishes a release zip is only known when you press *Install*.
 Search runs when you press Enter, not while you type: GitHub allows ten
 searches a minute without a token.
 
+Each catalog lists the game versions a project has files for: CurseForge
+per file (`latestFilesIndexes`), Tukui one per client (`patch`), WoWInterface
+the versions an author marked it compatible with (half the catalog has none).
+Those are compared with the selected client (`Compat::listed`): a project
+listed only for other games is dropped, and each hit says whether its site
+lists this build, an older or a newer one, or nothing at all (*Unverified*,
+always so on GitHub). A Classic client counts only its own progression:
+ElvUI lists TBC and Mists builds but no Wrath one, so a Wrath client does
+not see it. CurseForge is also asked for the client's version type, so its
+twenty answers are the most popular for that game; for Classic the build
+picks the progression, and nothing is sent while the build is unknown.
+
 ## Overriding the guess
 
 For the rare addon Tocsin gets wrong, `tocsin.toml` accepts overrides keyed
@@ -179,8 +191,12 @@ that way:
   silently: when the zip ships folders you already have (a bundled `Ace3`
   or `LibStub`, say) Tocsin names them and asks first.
 - A search sends what you typed (trimmed, 64 characters at most) to the
-  GitHub and CurseForge search endpoints, and nothing else about you or your
-  addons; WoWInterface and Tukui are searched locally in their catalogs.
+  GitHub and CurseForge search endpoints, and nothing else about your
+  addons. CurseForge also gets which game client you play, as its version
+  type id (`gameVersionTypeId`: Retail, Classic Era, Forever, or the Classic
+  progression your build belongs to), so that its twenty answers are the
+  most popular for that game; GitHub gets nothing about the client.
+  WoWInterface and Tukui are searched locally in their catalogs.
   Installing a result goes through the same download checks as an update.
 - Addon icons come only from `media.forgecdn.net` (CurseForge logos) and
   `cdn-wow.mmoui.com` (WoWInterface thumbnails), over HTTPS, checked on

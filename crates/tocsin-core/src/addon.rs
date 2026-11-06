@@ -84,11 +84,12 @@ pub enum Compat {
     Exact,
     /// Built for this flavor, but an older build (`120007` while the game is
     /// `120105`): the game shows it as "out of date" and still loads it.
+    /// Also when newer builds are listed beside an older one.
     Older {
-        /// Highest build listed for this flavor.
+        /// Highest build listed for this flavor below the client's.
         built_for: u32,
     },
-    /// Built for this flavor and a *newer* build than the installed game.
+    /// Built for this flavor, every listed build *newer* than the installed game.
     Newer {
         /// Lowest build listed for this flavor.
         built_for: u32,
@@ -119,14 +120,99 @@ impl Compat {
         if mine.contains(&current) {
             return Compat::Exact;
         }
-        let max = mine.iter().copied().max().unwrap_or(0);
-        let min = mine.iter().copied().min().unwrap_or(0);
-        if max < current {
-            Compat::Older { built_for: max }
-        } else {
-            Compat::Newer { built_for: min }
+        // A list that straddles the client (`120005, 120200` on 12.1.5) has a
+        // build the game loads as out of date: that one is what the user gets.
+        let below = mine.iter().copied().filter(|&c| c < current).max();
+        match below {
+            Some(built_for) => Compat::Older { built_for },
+            None => Compat::Newer {
+                built_for: mine.iter().copied().min().unwrap_or(0),
+            },
         }
     }
+
+    /// What a site's list of game versions says about this client, for
+    /// search results: like [`Compat::of`], except that a Classic client
+    /// with a known build counts only the builds of its own progression.
+    ///
+    /// One `Classic` flavor covers TBC Anniversary, Wrath, Titan, Cataclysm
+    /// and Mists, but a file for one does not load on another. Tukui lists
+    /// ElvUI for `["12.1.5","1.60.1","5.5.4","1.15.9","2.5.6"]`: to
+    /// [`Compat::of`] a Wrath 3.4.5 client sees Classic builds both sides of
+    /// its own and calls it newer, when no ElvUI is offered for Wrath at all.
+    pub fn listed(interfaces: &[u32], flavor: Flavor, client_interface: Option<u32>) -> Compat {
+        let Some(current) = client_interface.filter(|_| flavor == Flavor::Classic) else {
+            return Compat::of(interfaces, flavor, client_interface);
+        };
+        let mine: Vec<u32> = interfaces
+            .iter()
+            .copied()
+            .filter(|&c| Flavor::of_interface(c) != Flavor::Classic || progression(c) == progression(current))
+            .collect();
+        if mine.is_empty() && !interfaces.is_empty() {
+            return Compat::OtherFlavor;
+        }
+        Compat::of(&mine, flavor, client_interface)
+    }
+
+    /// One or two words for a search result, about whether the site offers
+    /// it for this game: `Forever`, `Out of date`, `Unverified`.
+    pub fn label(self, flavor: Flavor) -> &'static str {
+        match self {
+            Compat::Exact => flavor.label(),
+            Compat::Older { .. } => "Out of date",
+            Compat::Newer { .. } => "Newer build",
+            Compat::Unknown => "Unverified",
+            Compat::OtherFlavor => "Other game",
+        }
+    }
+
+    /// The sentence behind [`Compat::label`], for a help tip.
+    pub fn describe(self, flavor: Flavor, client_interface: Option<u32>) -> String {
+        let game = client_interface.map(interface_to_string);
+        match (self, game) {
+            (Compat::Exact, Some(game)) => format!("The site lists a file for {} {game}.", flavor.label()),
+            (Compat::Exact, None) => format!("The site lists a file for {}.", flavor.label()),
+            (Compat::Older { built_for }, Some(game)) => format!(
+                "Built for {}, the game is {game}: loads as out of date.",
+                interface_to_string(built_for)
+            ),
+            (Compat::Older { built_for }, None) => {
+                format!(
+                    "Built for {}: loads as out of date.",
+                    interface_to_string(built_for)
+                )
+            }
+            (Compat::Newer { built_for }, Some(game)) => {
+                format!(
+                    "Built for {}, the game is {game}.",
+                    interface_to_string(built_for)
+                )
+            }
+            (Compat::Newer { built_for }, None) => format!("Built for {}.", interface_to_string(built_for)),
+            (Compat::Unknown, Some(_)) => format!(
+                "The site does not say which game it is for. Tocsin checks the zip's .toc on \
+                 Install and refuses one that is not for {}.",
+                flavor.label()
+            ),
+            (Compat::Unknown, None) => format!(
+                "The game's version is unknown, so the site's files cannot be matched to it. \
+                 Tocsin checks the zip's .toc on Install and refuses one that is not for {}.",
+                flavor.label()
+            ),
+            (Compat::OtherFlavor, _) => {
+                format!("The site lists files for other games, not {}.", flavor.label())
+            }
+        }
+    }
+}
+
+/// Which Classic progression a build belongs to: its major version, with
+/// Titan (3.80.x) apart from Wrath (3.4.x) although both are 3.x.
+fn progression(code: u32) -> (u32, bool) {
+    let major = code / 10000;
+    let minor = (code / 100) % 100;
+    (major, major == 3 && minor >= 50)
 }
 
 /// `120105` → `12.1.5`.
@@ -641,12 +727,92 @@ mod tests {
             Compat::of(&[120200], f, Some(120105)),
             Compat::Newer { built_for: 120200 }
         );
+        // Builds both sides of the client: the older one is what loads.
+        assert_eq!(
+            Compat::of(&[120200, 120005], f, Some(120105)),
+            Compat::Older { built_for: 120005 }
+        );
         // No build known: only the flavor can be judged.
         assert_eq!(Compat::of(&[120100], f, None), Compat::Unknown);
         assert_eq!(Compat::of(&[40402], f, None), Compat::OtherFlavor);
         assert_eq!(Compat::of(&[], f, Some(120105)), Compat::Unknown);
         assert_eq!(interface_to_string(120105), "12.1.5");
         assert_eq!(interface_to_string(16001), "1.60.1");
+    }
+
+    #[test]
+    fn a_classic_listing_counts_only_the_clients_progression() {
+        // ElvUI on Tukui: Retail, Forever, Mists, Classic Era, TBC.
+        let elvui = [120105, 16001, 50504, 11509, 20506];
+        let c = Flavor::Classic;
+        // No Wrath build listed: not offered for a Wrath client.
+        assert_eq!(Compat::listed(&elvui, c, Some(30405)), Compat::OtherFlavor);
+        assert_eq!(Compat::listed(&elvui, c, Some(20506)), Compat::Exact);
+        assert_eq!(
+            Compat::listed(&elvui, c, Some(50505)),
+            Compat::Older { built_for: 50504 }
+        );
+        // Titan (3.80.x) is not Wrath (3.4.x).
+        assert_eq!(Compat::listed(&[30405], c, Some(38002)), Compat::OtherFlavor);
+        assert_eq!(Compat::listed(&[38002], c, Some(38002)), Compat::Exact);
+        // Build unknown, or another flavor: the plain comparison.
+        assert_eq!(Compat::listed(&elvui, c, None), Compat::Unknown);
+        assert_eq!(
+            Compat::listed(&elvui, Flavor::Forever, Some(16001)),
+            Compat::Exact
+        );
+        assert_eq!(Compat::listed(&[], c, Some(30405)), Compat::Unknown);
+    }
+
+    #[test]
+    fn fit_labels_and_tips_for_search_results() {
+        let f = Flavor::Forever;
+        assert_eq!(Compat::Exact.label(f), "Forever");
+        assert_eq!(Compat::Exact.label(Flavor::Vanilla), "Classic Era");
+        assert_eq!(Compat::Older { built_for: 1 }.label(f), "Out of date");
+        assert_eq!(Compat::Newer { built_for: 1 }.label(f), "Newer build");
+        assert_eq!(Compat::Unknown.label(f), "Unverified");
+        assert_eq!(Compat::OtherFlavor.label(f), "Other game");
+
+        assert_eq!(
+            Compat::Exact.describe(f, Some(16001)),
+            "The site lists a file for Forever 1.60.1."
+        );
+        assert_eq!(
+            Compat::Exact.describe(f, None),
+            "The site lists a file for Forever."
+        );
+        assert_eq!(
+            Compat::Older { built_for: 120100 }.describe(Flavor::Retail, Some(120105)),
+            "Built for 12.1.0, the game is 12.1.5: loads as out of date."
+        );
+        assert_eq!(
+            Compat::Older { built_for: 120100 }.describe(Flavor::Retail, None),
+            "Built for 12.1.0: loads as out of date."
+        );
+        assert_eq!(
+            Compat::Newer { built_for: 16002 }.describe(f, Some(16001)),
+            "Built for 1.60.2, the game is 1.60.1."
+        );
+        assert_eq!(
+            Compat::Newer { built_for: 16002 }.describe(f, None),
+            "Built for 1.60.2."
+        );
+        assert_eq!(
+            Compat::OtherFlavor.describe(f, Some(16001)),
+            "The site lists files for other games, not Forever."
+        );
+        for c in [Compat::Unknown, Compat::Exact, Compat::OtherFlavor] {
+            assert!(c.describe(f, None).ends_with('.'));
+        }
+        assert_eq!(
+            Compat::Unknown.describe(f, Some(16001)),
+            "The site does not say which game it is for. Tocsin checks the zip's .toc on \
+             Install and refuses one that is not for Forever."
+        );
+        assert!(Compat::Unknown
+            .describe(f, None)
+            .starts_with("The game's version is unknown"));
     }
 
     #[test]

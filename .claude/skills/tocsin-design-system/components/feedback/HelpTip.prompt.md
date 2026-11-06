@@ -13,7 +13,7 @@ Rules:
 
 Used by:
 
-- Get addons: next to "Site only", to say why that site can't be installed from in Tocsin. The cause is either a CurseForge author's choice or a GitHub repository with no releases.
+- Get addons: after the fit badge of every source line, to say what the site lists for this game (`Compat::describe`). When the line also says "Site only", the same "?" explains it too, reason first, then the fit, a blank line between: never two "?" on a line. The site-only cause is either a CurseForge author's choice or a GitHub repository with no releases.
 
 ```jsx
 <span class="badge manual">SITE ONLY</span> <HelpButton open={open} onClick={toggle}>?</HelpButton>

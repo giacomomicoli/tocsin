@@ -159,6 +159,21 @@ site, so you can choose where to get it from. Each line shows how popular it
 is and the year it was last updated, which is handy to spot an old copy
 someone forgot on one of them.
 
+Results are for the game you have selected: addons a site offers only for
+other versions of WoW are left out. Each site line also says what that site
+knows about your game:
+
+- the game's name (*Retail*, *Classic Era*, *Classic*, *Forever*): the site
+  lists a file for your game at its current build;
+- *Out of date*: the site's file is for an older build of your game, which
+  the game shows as out of date but still loads;
+- *Newer build*: the file is for a newer build than the one you have;
+- *Unverified*: the site doesn't say which game the file is for. GitHub
+  never does, and many WoWInterface files don't either.
+
+Click the **?** next to it for the details. Tocsin checks the downloaded zip
+on **Install** anyway, and refuses one with nothing for your game.
+
 Tocsin remembers where you installed an addon from and keeps checking there.
 Addons you already have are marked *Installed*. Search runs when you press
 Enter.

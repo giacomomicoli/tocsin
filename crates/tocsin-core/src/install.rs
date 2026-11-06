@@ -288,10 +288,11 @@ pub struct Outcome {
 /// rename; if any rename fails the ones already done are undone.
 pub fn install(addons_dir: &Path, zip: &Path, req: &Request<'_>) -> Result<Outcome, InstallError> {
     let manifest = archive::inspect(zip)?;
-    // At least one folder must be for this flavor (or declare nothing).
+    // At least one folder must be for this flavor (or declare nothing). For
+    // Classic, for the client's own progression: a TBC zip does not load on Wrath.
     let fits = manifest.folders.values().any(|toc| {
         !matches!(
-            Compat::of(&toc.interface_versions(), req.flavor, req.client_interface),
+            Compat::listed(&toc.interface_versions(), req.flavor, req.client_interface),
             Compat::OtherFlavor
         )
     });
@@ -949,6 +950,31 @@ mod tests {
         assert!(matches!(err, InstallError::WrongFlavor("Retail")));
         assert!(!addons.join("WA").exists());
         assert!(!addons.join(STAGING_DIR).exists());
+    }
+
+    #[test]
+    fn refuses_another_classic_progression() {
+        let tmp = tempfile::tempdir().unwrap();
+        let addons = tmp.path().join("AddOns");
+        std::fs::create_dir(&addons).unwrap();
+        let z = make_zip(
+            tmp.path(),
+            "tbc.zip",
+            &[("Foo/Foo_TBC.toc", "## Interface: 20506\n")],
+        );
+        let classic = |client_interface| Request {
+            flavor: Flavor::Classic,
+            client_interface,
+            ..req("Foo", "1")
+        };
+        // A Wrath 3.4.5 client: TBC Classic is not its game.
+        let err = install(&addons, &z, &classic(Some(30405))).unwrap_err();
+        assert!(matches!(err, InstallError::WrongFlavor("Classic")));
+        assert!(!addons.join("Foo").exists());
+        assert!(!addons.join(STAGING_DIR).exists());
+        // Build unknown: only the flavor can be judged, and it is Classic.
+        install(&addons, &z, &classic(None)).unwrap();
+        assert!(addons.join("Foo").join("Foo_TBC.toc").exists());
     }
 
     #[test]

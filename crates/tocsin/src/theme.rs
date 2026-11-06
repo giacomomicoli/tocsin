@@ -89,7 +89,7 @@ pub mod space {
     pub const VERSIONS_W: f32 = 120.0;
     pub const BADGE_COL_W: f32 = 150.0;
     pub const SEARCH_W: f32 = 240.0;
-    pub const SOURCES_W: f32 = 400.0;
+    pub const SOURCES_W: f32 = 480.0;
     pub const LOCKUP_H: f32 = 52.0;
     /// The mock's `scrollbar-width: thin`, as wide as its 6px list gutter.
     pub const SCROLLBAR_W: f32 = 6.0;

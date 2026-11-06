@@ -8,8 +8,9 @@
 use serde::Deserialize;
 
 use super::{Release, SourceError};
+use crate::addon::{Compat, Flavor};
 use crate::http::Http;
-use crate::search::{downloads, repo_of, simplify, year_of_iso, Hit};
+use crate::search::{downloads, interface_codes, repo_of, simplify, year_of_iso, Hit};
 use crate::version::Version;
 
 #[derive(Debug, Deserialize)]
@@ -72,23 +73,55 @@ struct Listed {
     downloads: Option<f64>,
     #[serde(default)]
     last_update: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "strings")]
     directories: Vec<String>,
+    /// The game version of each client the one download serves, unsorted:
+    /// ElvUI lists `["12.1.5","1.60.1","5.5.4","1.15.9","2.5.6"]`.
+    #[serde(default, deserialize_with = "strings")]
+    patch: Vec<String>,
+}
+
+/// The strings of a list, leniently: the whole catalog is one answer, so a
+/// `null` or a stray number in one project's list must not fail the search.
+fn strings<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    // Any JSON value decodes; a shape other than a list reads as empty.
+    let items = match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Array(items) => items,
+        _ => Vec::new(),
+    };
+    Ok(items
+        .into_iter()
+        .filter_map(|v| match v {
+            serde_json::Value::String(s) => Some(s),
+            _ => None,
+        })
+        .collect())
 }
 
 /// Search the catalog. `GET https://api.tukui.org/v1/addons` lists every
 /// project (two today: ElvUI and Tukui, a few KiB), so the filtering is ours.
-pub async fn search(http: &Http, query: &str) -> Result<Vec<Hit>, SourceError> {
+pub async fn search(
+    http: &Http,
+    query: &str,
+    flavor: Flavor,
+    client_interface: Option<u32>,
+) -> Result<Vec<Hit>, SourceError> {
     let all: Vec<Listed> = http.get_json("https://api.tukui.org/v1/addons", &[]).await?;
-    Ok(matching(all, query))
+    Ok(matching(all, query, flavor, client_interface))
 }
 
-fn matching(all: Vec<Listed>, query: &str) -> Vec<Hit> {
+fn matching(all: Vec<Listed>, query: &str, flavor: Flavor, client_interface: Option<u32>) -> Vec<Hit> {
     let q = simplify(query);
     all.into_iter()
         .filter(|a| valid_slug(&a.slug))
         .filter(|a| !q.is_empty() && (simplify(&a.name).contains(&q) || simplify(&a.slug).contains(&q)))
-        .map(|a| Hit {
+        .map(|a| {
+            let codes = interface_codes(a.patch.iter().map(String::as_str));
+            (Compat::listed(&codes, flavor, client_interface), a)
+        })
+        .filter(|(compat, _)| *compat != Compat::OtherFlavor)
+        .map(|(compat, a)| Hit {
+            compat,
             url: a
                 .web_url
                 .unwrap_or_else(|| format!("https://tukui.org/{}", a.slug)),
@@ -147,7 +180,8 @@ mod tests {
             "small_desc":"A user interface replacement."},
             {"id":-1,"slug":"tukui","author":"Tukz","name":"Tukui","version":"20.0"}]"#;
         let all = || serde_json::from_str::<Vec<Listed>>(json).unwrap();
-        let hits = matching(all(), "elv");
+        let find = |q: &str| matching(all(), q, Flavor::Retail, Some(120105));
+        let hits = find("elv");
         assert_eq!(hits.len(), 1);
         assert_eq!(
             hits[0].source,
@@ -155,8 +189,52 @@ mod tests {
         );
         assert_eq!(hits[0].repo.as_deref(), Some("tukui-org/elvui"));
         assert_eq!(hits[0].authors, ["Elv"]);
-        assert_eq!(matching(all(), "TUKUI").len(), 1);
-        assert!(matching(all(), "weakauras").is_empty());
+        // No `patch` listed: kept, unverified.
+        assert_eq!(hits[0].compat, Compat::Unknown);
+        assert_eq!(find("TUKUI").len(), 1);
+        assert!(find("weakauras").is_empty());
+    }
+
+    #[test]
+    fn the_patch_list_says_which_clients_it_serves() {
+        // ElvUI and Tukui as `GET /v1/addons` listed them on 2026-11-06.
+        let json = r#"[{"id":-2,"slug":"elvui","author":"Elv","name":"ElvUI","version":"16.01",
+            "patch":["12.1.5","1.60.1","5.5.4","1.15.9","2.5.6"],"last_update":"2026-11-03",
+            "directories":["ElvUI","ElvUI_Libraries","ElvUI_Options"]},
+            {"id":-1,"slug":"tukui","author":"Tukz","name":"Tukui","version":"20.0",
+            "patch":["11.1.7","5.5.0","1.15.7"],"directories":["Tukui"]}]"#;
+        let elvui = |flavor, client_interface| {
+            let all = serde_json::from_str::<Vec<Listed>>(json).unwrap();
+            matching(all, "elvui", flavor, client_interface)
+                .first()
+                .map(|h| h.compat)
+        };
+        assert_eq!(elvui(Flavor::Forever, Some(16001)), Some(Compat::Exact));
+        // No Wrath build listed: not offered on a Wrath client.
+        assert_eq!(elvui(Flavor::Classic, Some(30405)), None);
+        assert_eq!(elvui(Flavor::Classic, Some(50504)), Some(Compat::Exact));
+        // Listed for Retail, the game's build unknown: nothing to compare.
+        assert_eq!(elvui(Flavor::Retail, None), Some(Compat::Unknown));
+        assert_eq!(elvui(Flavor::Retail, Some(120105)), Some(Compat::Exact));
+        assert_eq!(
+            elvui(Flavor::Retail, Some(120107)),
+            Some(Compat::Older { built_for: 120105 })
+        );
+        // Tukui lists no Forever build.
+        let all = serde_json::from_str::<Vec<Listed>>(json).unwrap();
+        assert!(matching(all, "tukui", Flavor::Forever, Some(16001)).is_empty());
+    }
+
+    #[test]
+    fn junk_in_a_list_does_not_fail_the_catalog() {
+        let json = r#"[{"slug":"elvui","name":"ElvUI","patch":null,"directories":null},
+            {"slug":"tukui","name":"Tukui","patch":["12.1.5",7,null],"directories":["Tukui",{}]},
+            {"slug":"other","name":"Other","patch":"12.1.5","directories":3}]"#;
+        let all = serde_json::from_str::<Vec<Listed>>(json).unwrap();
+        assert!(all[0].patch.is_empty() && all[0].directories.is_empty());
+        assert_eq!(all[1].patch, ["12.1.5"]);
+        assert_eq!(all[1].directories, ["Tukui"]);
+        assert!(all[2].patch.is_empty() && all[2].directories.is_empty());
     }
 
     #[test]

@@ -145,7 +145,7 @@ input::placeholder{color:var(--text-3)}
         <div style="height:1px;background:var(--rule-gold)"></div>
         <div style="display:flex;flex-direction:column;gap:8px">
           <div style="display:flex;align-items:center;gap:8px">
-            <input value="{{ dQuery }}" onChange="{{ onDQuery }}" onKeyDown="{{ onDKey }}" placeholder="Search addons by name…" style="flex:1;min-width:0;box-sizing:border-box;padding:10px;font-family:var(--font-ui);font-size:13px;color:var(--text-1);background:var(--input-bg);border:1px solid var(--input-border);border-radius:3px;outline:none" style-focus="border-color:var(--focus-ring);box-shadow:var(--shadow-glow-gold)">
+            <input value="{{ dQuery }}" onChange="{{ onDQuery }}" onKeyDown="{{ onDKey }}" placeholder="{{ dPlaceholder }}" style="flex:1;min-width:0;box-sizing:border-box;padding:10px;font-family:var(--font-ui);font-size:13px;color:var(--text-1);background:var(--input-bg);border:1px solid var(--input-border);border-radius:3px;outline:none" style-focus="border-color:var(--focus-ring);box-shadow:var(--shadow-glow-gold)">
             <button onClick="{{ doSearch }}" disabled="{{ dSearching }}" style="padding:9px 16px;font-size:13px;line-height:1.3;border:1px solid var(--btn-primary-border);border-radius:3px;background:var(--btn-primary-bg);color:var(--btn-primary-text);font-family:var(--font-display);font-weight:600;cursor:pointer;white-space:nowrap;flex:none;opacity:{{ dSearchOpacity }}" style-hover="background:var(--btn-primary-bg-hover)">{{ searchLabel }}</button>
           </div>
           <sc-if value="{{ catalogLoading }}" hint-placeholder-val="{{ false }}">
@@ -192,6 +192,12 @@ input::placeholder{color:var(--text-3)}
           </div>
         </sc-if>
         <sc-if value="{{ dHasResults }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="flex:1;min-width:0;font-size:12px;color:var(--text-2)">{{ dSummary }}</span>
+            <sc-for list="{{ dChips }}" as="c" hint-placeholder-count="2">
+              <button onClick="{{ c.go }}" style="padding:6px 12px;font-size:13px;line-height:1.3;border:1px solid {{ c.border }};border-radius:3px;background:{{ c.bg }};color:{{ c.fg }};font-family:{{ c.font }};font-weight:600;cursor:pointer;white-space:nowrap;flex:none">{{ c.label }}</button>
+            </sc-for>
+          </div>
           <div style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:6px;scrollbar-width:thin;scrollbar-color:var(--border-control) transparent">
             <sc-for list="{{ results }}" as="f" hint-placeholder-count="3">
               <div style="flex:none;display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:2px;border:1px solid var(--border-row);background:var(--surface-row)" style-hover="border-color:var(--border-row-hover)">
@@ -203,7 +209,7 @@ input::placeholder{color:var(--text-3)}
                   <span style="font-size:12px;line-height:1.3;color:var(--text-2)">{{ f.by }}</span>
                   <span style="font-size:12px;line-height:1.3;color:var(--text-3);text-wrap:pretty">{{ f.summary }}</span>
                 </div>
-                <div style="width:400px;flex:none;display:flex;flex-direction:column;gap:6px">
+                <div style="width:var(--w-sources);flex:none;display:flex;flex-direction:column;gap:6px">
                   <sc-if value="{{ f.installed }}" hint-placeholder-val="{{ false }}">
                     <span style="align-self:flex-start;font-family:var(--font-display);font-weight:600;font-size:11px;line-height:1.3;padding:3px 8px;border-radius:2px;color:var(--status-ok);border:1px solid color-mix(in srgb, var(--status-ok) 50%, transparent);background:color-mix(in srgb, var(--status-ok) 12%, transparent)">INSTALLED</span>
                   </sc-if>
@@ -211,18 +217,31 @@ input::placeholder{color:var(--text-3)}
                     <span style="font-size:11px;color:var(--text-3)">{{ f.multiLabel }}</span>
                   </sc-if>
                   <sc-for list="{{ f.lines }}" as="h" hint-placeholder-count="2">
+                    <div style="display:flex;flex-direction:column;gap:6px">
                     <div style="display:flex;align-items:center;gap:10px">
                       <span style="width:96px;flex:none;font-size:13px;color:var(--text-1)">{{ h.src }}</span>
-                      <span style="flex:1;min-width:0;font-size:12px;color:{{ h.factsColor }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ h.facts }}</span>
+                      <span style="flex:1;min-width:0;font-size:12px;color:{{ h.factsColor }};white-space:nowrap;overflow:hidden">{{ h.facts }}</span>
+                      <span style="flex:none;font-family:var(--font-display);font-weight:600;font-size:11px;line-height:1.3;padding:3px 8px;border-radius:2px;white-space:nowrap;color:{{ h.fitColor }};border:1px solid {{ h.fitBorder }};background:{{ h.fitBg }}">{{ h.fit }}</span>
+                      <button onClick="{{ h.toggleTip }}" style="flex:none;font-family:var(--font-display);font-weight:600;font-size:11px;line-height:1.3;padding:var(--pad-help);border-radius:2px;cursor:pointer;color:var(--status-manual);border:1px solid color-mix(in srgb, var(--status-manual) 50%, transparent);background:{{ h.helpBg }}" style-hover="background:color-mix(in srgb, var(--status-manual) 20%, transparent)">?</button>
                       <button onClick="{{ h.open }}" style="padding:5px 10px;font-size:12px;line-height:1.3;border:1px solid var(--btn-ghost-border);border-radius:3px;background:transparent;color:var(--btn-ghost-text);font-family:var(--font-ui);font-weight:500;cursor:pointer;white-space:nowrap;flex:none" style-hover="background:var(--btn-ghost-bg-hover)">Open</button>
                       <sc-if value="{{ h.showInstall }}" hint-placeholder-val="{{ true }}">
                         <button onClick="{{ h.install }}" disabled="{{ h.disabled }}" style="padding:5px 10px;font-size:12px;line-height:1.3;border:1px solid var(--btn-primary-border);border-radius:3px;background:var(--btn-primary-bg);color:var(--btn-primary-text);font-family:var(--font-display);font-weight:600;cursor:pointer;white-space:nowrap;flex:none;opacity:{{ h.opacity }}" style-hover="background:var(--btn-primary-bg-hover)">{{ h.installLabel }}</button>
                       </sc-if>
+                      <sc-if value="{{ h.siteOnly }}" hint-placeholder-val="{{ false }}">
+                        <span style="flex:none;font-family:var(--font-display);font-weight:600;font-size:11px;line-height:1.3;padding:3px 8px;border-radius:2px;white-space:nowrap;color:var(--status-manual);border:1px solid color-mix(in srgb, var(--status-manual) 50%, transparent);background:color-mix(in srgb, var(--status-manual) 12%, transparent)">SITE ONLY</span>
+                      </sc-if>
+                    </div>
+                    <sc-if value="{{ h.tipOpen }}" hint-placeholder-val="{{ false }}">
+                      <div style="padding:var(--pad-tip);border-radius:2px;border:1px solid color-mix(in srgb, var(--status-manual) 50%, transparent);background:var(--surface-sunken);font-size:12px;color:var(--text-1);white-space:pre-line;text-wrap:pretty">{{ h.tip }}</div>
+                    </sc-if>
                     </div>
                   </sc-for>
                 </div>
               </div>
             </sc-for>
+            <sc-if value="{{ dStrictEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px;text-align:center;color:var(--text-2);font-size:13px;text-wrap:pretty">{{ dStrictHint }}</div>
+            </sc-if>
           </div>
         </sc-if>
       </sc-if>
@@ -338,16 +357,16 @@ const RESULTS = [
   { folder: 'BigWigs', name: 'BigWigs Bossmods', authors: ['Funkydude'], summary: 'Lightweight boss mod: bars, messages and sounds for raid encounters.',
     hits: [{ src: 'CurseForge', facts: '298.4M downloads · 2026' }, { src: 'WoWInterface', facts: '1.4M downloads · 2026' }, { src: 'GitHub', facts: '★ 520 · 2026' }] },
   { folder: 'Details', name: 'Details! Damage Meter', authors: ['Tercioo'], summary: 'Damage, healing and threat meter with per-boss breakdowns and plugins.',
-    hits: [{ src: 'CurseForge', facts: '356.0M downloads · 2026' }, { src: 'WoWInterface', facts: '640k downloads · 2019', stale: true }, { src: 'GitHub', facts: '★ 310 · 2026' }] },
+    hits: [{ src: 'CurseForge', facts: '356.0M downloads · 2026' }, { src: 'WoWInterface', facts: '640k downloads · 2019', stale: true, fit: 'older', built: '11.2.7' }, { src: 'GitHub', facts: '★ 310 · 2026' }] },
   { folder: 'Bartender4', name: 'Bartender4', authors: ['Nevcairiel'], summary: 'Full action bar replacement with per-bar layout, paging and fading.',
     conflicts: ['Ace3', 'LibStub'],
     hits: [{ src: 'CurseForge', facts: '120.8M downloads · 2026' }, { src: 'WoWInterface', facts: '3.0M downloads · 2026' }, { src: 'GitHub', facts: '★ 140 · 2026' }] },
   { folder: 'Questie', name: 'Questie', authors: ['Aero', 'BreakBB'], summary: 'Quest helper for Classic: shows quest givers, objectives and turn-ins on the map.',
-    hits: [{ src: 'GitHub', facts: '★ 1.3k · 2026' }, { src: 'CurseForge', facts: '88.2M downloads · 2026' }] },
+    hits: [{ src: 'GitHub', facts: '★ 1.3k · 2026' }] },
   { folder: 'TomTom', name: 'TomTom', authors: ['Cladhaire'], summary: 'Waypoint arrow and coordinates for the world map and minimap.',
-    hits: [{ src: 'CurseForge', facts: '61.5M downloads · 2026' }, { src: 'WoWInterface', facts: '1.9M downloads · 2018', stale: true }] },
+    hits: [{ src: 'CurseForge', facts: '61.5M downloads · 2026', siteOnly: true }, { src: 'WoWInterface', facts: '1.9M downloads · 2018', stale: true, fit: 'older', built: '11.1.0' }] },
   { folder: 'OmniCC', name: 'OmniCC', authors: ['Tuller'], summary: 'Cooldown count text on every action button, item and aura.',
-    hits: [{ src: 'CurseForge', facts: '140.3M downloads · 2026' }, { src: 'WoWInterface', facts: '4.4M downloads · 2026' }] },
+    hits: [{ src: 'CurseForge', facts: '140.3M downloads · 2026' }, { src: 'WoWInterface', facts: '4.4M downloads · 2026', fit: 'unknown' }] },
   { folder: 'WeakAuras', name: 'WeakAuras', authors: ['Stanzilla', 'emptyrivers'], summary: 'Powerful framework to display highly customizable graphics on screen.',
     hits: [{ src: 'GitHub', facts: '★ 1.4k · 2026' }, { src: 'CurseForge', facts: '305.7M downloads · 2026' }] },
 ];
@@ -366,7 +385,7 @@ class Component extends DCLogic {
         fams: clone(CLASSIC), removed: [] },
     ],
     active: 0, filter: 'all', search: '', screen: this.props.startScreen ?? 'library', busy: false, installing: null,
-    catalog: 'idle', dQuery: 'boss', dSearched: 'boss', dSearching: false, dInstalling: null, confirm: null, delConfirm: null, tick: 0,
+    catalog: 'idle', dQuery: 'boss', dSearched: 'boss', dSearching: false, dInstalling: null, dTip: null, dStrict: false, confirm: null, delConfirm: null, tick: 0,
     keys: { curseforge: 'notset', github: 'notset' }, form: { curseforge: '', github: '' }, saving: false,
     notice: { err: false, text: 'Checked 14 addons · 2 updates · 4 need attention.' },
   };
@@ -382,7 +401,7 @@ class Component extends DCLogic {
   }
   search() {
     const q = this.state.dQuery;
-    this.setState({ dSearching: true, confirm: null }); this.startTick();
+    this.setState({ dSearching: true, dTip: null, confirm: null }); this.startTick();
     setTimeout(() => this.setState({ dSearching: false, dSearched: q }, () => this.stopTick()), 900);
   }
   isInstalled(folder) {
@@ -578,7 +597,17 @@ class Component extends DCLogic {
     const count = this.count(g);
     const go = (screen) => () => { this.setState({ screen, notice: null, form: { curseforge: '', github: '' } }); if (screen === 'discover') this.loadCatalog(); };
     const cfKey = st.keys.curseforge === 'stored';
-    const results = st.dSearched === null ? [] : findResults(st.dSearched).map(r => {
+    // What a site says about the selected game (Compat::label / describe):
+    // GitHub never says; a hit without `fit` lists this build.
+    const fitOf = (h) => h.fit || (h.src === 'GitHub' ? 'unknown' : 'exact');
+    const FIT = {
+      exact: { tone: 'ok', label: () => g.label.toUpperCase(), tip: () => `The site lists a file for ${g.label} ${g.build}.` },
+      older: { tone: 'update', label: () => 'OUT OF DATE', tip: (h) => `Built for ${h.built}, the game is ${g.build}: loads as out of date.` },
+      newer: { tone: 'ahead', label: () => 'NEWER BUILD', tip: (h) => `Built for ${h.built}, the game is ${g.build}.` },
+      unknown: { tone: 'manual', label: () => 'UNVERIFIED', tip: () => `The site does not say which game it is for. Tocsin checks the zip's .toc on Install and refuses one that is not for ${g.label}.` },
+    };
+    const SITE_ONLY = 'The author lets CurseForge hand the files out only on its website and in its own app, so Tocsin gets no download link. Open the page, download the zip and unzip it into AddOns, or pick another site if one is listed.';
+    const found = st.dSearched === null ? [] : findResults(st.dSearched).map(r => {
       const hits = r.hits.filter(h => cfKey || h.src !== 'CurseForge');
       const installed = this.isInstalled(r.folder);
       const canInstall = !installed && !st.busy && !st.confirm && !st.dInstalling && st.installs.length > 0;
@@ -587,15 +616,28 @@ class Component extends DCLogic {
         installed, multi: !installed && hits.length > 1, multiLabel: `On ${hits.length} sites: pick one`,
         lines: hits.map(h => {
           const running = st.dInstalling === r.folder + '|' + h.src;
+          const key = r.folder + '|' + h.src;
+          const fit = FIT[fitOf(h)];
+          const c = V(fit.tone);
+          const siteOnly = !installed && !!h.siteOnly;
+          const tipOpen = st.dTip === key;
           return { src: h.src, facts: h.facts, factsColor: h.stale ? V('update') : 'var(--text-2)',
+            fit: fit.label(), fitColor: c, fitBorder: mix(c, 50), fitBg: mix(c, 12),
+            helpBg: tipOpen ? mix(V('manual'), 20) : 'transparent',
+            toggleTip: () => this.setState({ dTip: tipOpen ? null : key }),
+            tipOpen, tip: siteOnly ? `${SITE_ONLY}\n\n${fit.tip(h)}` : fit.tip(h), siteOnly,
             open: () => this.setState({ notice: { err: false, text: `Opening ${r.name} on ${h.src}…` } }),
-            showInstall: !installed, installLabel: running ? 'Installing…' : 'Install',
+            showInstall: !installed && !siteOnly, installLabel: running ? 'Installing…' : 'Install',
             disabled: !canInstall, opacity: canInstall || running ? 1 : 0.4,
             install: canInstall ? () => this.installFrom(r, h.src) : undefined };
         }),
+        confirmed: hits.some(h => fitOf(h) !== 'unknown'),
         _n: hits.length,
       };
     }).filter(r => r._n > 0);
+    const confirmedN = found.filter(r => r.confirmed).length;
+    // "Confirmed for …" hides what no site confirms, never what is installed.
+    const results = st.dStrict ? found.filter(r => r.confirmed || r.installed) : found;
     const lit = st.tick % 3;
     const keyDefs = [
       { id: 'curseforge', label: 'CurseForge API key', help: 'console.curseforge.com' },
@@ -634,11 +676,17 @@ class Component extends DCLogic {
       confirmBody: st.confirm ? `${st.confirm.r.name} from ${st.confirm.src} replaces ${st.confirm.r.conflicts.length} folders already in AddOns: ${st.confirm.r.conflicts.join(', ')}. They go to the backup; Rollback restores them.` : '',
       cancelInstall: () => this.setState({ confirm: null, notice: { err: false, text: 'Install cancelled; the download was deleted.' } }),
       confirmInstall: () => st.confirm && this.finishInstall(st.confirm.r, st.confirm.src),
-      dShowHint: !st.dSearching && results.length === 0,
+      dPlaceholder: `Search addons for ${g.label}…`,
+      dSummary: `Results for ${g.label} ${g.build} · ${confirmedN} confirmed · ${found.length - confirmedN} unverified`,
+      dChips: [this.chip(`Confirmed for ${g.label}`, st.dStrict, () => this.setState({ dStrict: true })),
+               this.chip('Everything found', !st.dStrict, () => this.setState({ dStrict: false }))],
+      dStrictEmpty: results.length === 0,
+      dStrictHint: `No site confirms these results for ${g.label}. Everything found shows them all.`,
+      dShowHint: !st.dSearching && found.length === 0,
       dHint: st.dSearched === null || st.dSearched === undefined
         ? "Find addons you don't have yet. An addon offered by several sites is listed once: you pick where to install it from."
         : `Nothing found for “${st.dSearched}”.`,
-      dHasResults: !st.dSearching && results.length > 0,
+      dHasResults: !st.dSearching && found.length > 0,
       results,
       noFolders: st.installs.length === 0,
       folderRows: st.installs.map((x, i) => ({ flavor: x.label.toUpperCase(), path: x.path, meta: `${x.build} · ${this.count(x)} addons`, remove: st.busy ? undefined : () => this.removeFolder(i) })),

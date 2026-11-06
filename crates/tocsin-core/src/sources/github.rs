@@ -368,6 +368,9 @@ fn repo_hit(r: Repo) -> Option<Hit> {
         icon: None,
         // Whether a release zip exists is only known at install time.
         site_only: false,
+        // Search says nothing about game versions: the zip's `.toc` is
+        // checked on Install.
+        compat: crate::addon::Compat::Unknown,
         url: r.html_url,
         name: r.name,
     })

@@ -239,7 +239,7 @@ pub(super) fn help<'a>(open: bool, on_press: Message) -> Button<'a, Message> {
 }
 
 /// What a [`help`] button explains, in a box under the line it belongs to.
-pub(super) fn tip<'a>(body: &'a str) -> Element<'a, Message> {
+pub(super) fn tip<'a>(body: impl text::IntoFragment<'a>) -> Element<'a, Message> {
     container(text(body).size(size::META))
         .padding(theme::space::TIP_PAD)
         .width(Fill)
