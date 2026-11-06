@@ -40,6 +40,15 @@ pub const DISPLAY_BOLD: Font = Font {
 };
 /// Versions, folder names, paths.
 pub const MONO: Font = Font::with_name("JetBrains Mono");
+/// Every JetBrains Mono glyph is 600/1000 em wide, so how many characters
+/// fit in a mono column follows from its width and text size alone.
+pub const MONO_ADVANCE: f32 = 0.6;
+
+/// How many [`MONO`] characters of `size` fit in `width`.
+pub fn mono_fit(width: f32, size: f32) -> usize {
+    // Truncation toward zero is the point: a partial glyph does not fit.
+    (width / (size * MONO_ADVANCE)) as usize
+}
 
 // ───────────────────────────── logo ─────────────────────────────
 pub const EMBLEM_PNG: &[u8] = include_bytes!("../assets/logo/tocsin-emblem-256.png");
@@ -73,6 +82,7 @@ pub mod space {
     pub const BADGE: [u16; 2] = [3, 8];
     pub const HELP: [u16; 2] = [2, 7]; // the "?" toggle, as tall as a badge
     pub const TIP_PAD: [u16; 2] = [8, 10];
+    pub const HOVER_GAP: f32 = 4.0; // hover tip ↔ the value it completes
     pub const CONFIRM_PAD: [u16; 2] = [12, 16];
     pub const ICON_HEAD: f32 = 32.0;
     pub const ICON_CHILD: f32 = 24.0;
@@ -451,6 +461,18 @@ pub fn tip(theme: &Theme) -> container::Style {
     container::Style {
         background: Some(t.surface_sunken.into()),
         border: bd(alpha(t.manual, 0.5), R1),
+        text_color: Some(t.text_1),
+        ..Default::default()
+    }
+}
+/// The whole of a value cut to fit its column, shown on hover. It floats
+/// over the rows, so it takes the frame's border and drop shadow.
+pub fn hover_tip(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(t.surface_sunken.into()),
+        border: bd(t.border_frame, R1),
+        shadow: t.shadow_frame,
         text_color: Some(t.text_1),
         ..Default::default()
     }
