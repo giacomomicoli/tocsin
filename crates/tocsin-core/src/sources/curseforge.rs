@@ -1,6 +1,8 @@
-//! CurseForge source (`## X-Curse-Project-ID`).
+//! CurseForge source (`## X-Curse-Project-ID`, or a project page in `## X-Website`).
 //!
-//! `GET https://api.curseforge.com/v1/mods/{id}` with header `x-api-key`.
+//! `GET https://api.curseforge.com/v1/mods/{id}` with header `x-api-key`;
+//! a project known only by its slug is looked up with
+//! `GET /v1/mods/search?gameId=1&slug={slug}`, which answers the same mod.
 //! Keys are free for personal use at <https://console.curseforge.com/>.
 //! Set `TOCSIN_CURSEFORGE_KEY`; the key is never written into the repo.
 
@@ -21,8 +23,19 @@ struct Envelope {
     data: Mod,
 }
 
+/// A slug search answers a list, normally of one.
+#[derive(Debug, Deserialize)]
+struct ModList {
+    #[serde(default)]
+    data: Vec<Mod>,
+}
+
 #[derive(Debug, Deserialize)]
 struct Mod {
+    #[serde(default)]
+    id: u64,
+    #[serde(default)]
+    slug: String,
     #[serde(default, rename = "gameId")]
     game_id: u64,
     #[serde(default)]
@@ -326,17 +339,87 @@ fn default_release_type() -> u8 {
 pub async fn latest(http: &Http, key: &str, id: u64, flavor: Flavor) -> Result<Release, SourceError> {
     let url = format!("https://api.curseforge.com/v1/mods/{id}");
     let env: Envelope = http.get_json(&url, &[("x-api-key", key)]).await?;
-    if env.data.game_id != 0 && env.data.game_id != WOW_GAME_ID {
+    release_of(env.data, id, flavor)
+}
+
+/// Fetch the newest *release*-type file of the WoW addon whose page is
+/// `curseforge.com/wow/addons/{slug}` (see [`slug_from_url`]).
+///
+/// `GET /v1/mods/search?gameId=1&slug={slug}`, documented at
+/// <https://docs.curseforge.com/rest-api/#search-mods>: the slug filter
+/// answers the project with that slug, in the same shape as `GET /v1/mods/{id}`.
+pub async fn latest_by_slug(
+    http: &Http,
+    key: &str,
+    slug: &str,
+    flavor: Flavor,
+) -> Result<Release, SourceError> {
+    if !valid_slug(slug) {
         return Err(SourceError::NoRelease);
     }
-    let page = env
-        .data
+    let mut url = Url::parse("https://api.curseforge.com/v1/mods/search").expect("static url");
+    url.query_pairs_mut()
+        .append_pair("gameId", &WOW_GAME_ID.to_string())
+        .append_pair("slug", slug);
+    let list: ModList = http.get_json(url.as_str(), &[("x-api-key", key)]).await?;
+    let m = addon_with_slug(list, slug).ok_or(SourceError::NotFound)?;
+    let id = m.id;
+    release_of(m, id, flavor)
+}
+
+/// The WoW addon called `slug` in a slug search answer. The filter is
+/// checked again here: the slug is unique per kind of project, not per
+/// game, so only an addon page (`/wow/addons/`) is taken.
+fn addon_with_slug(list: ModList, slug: &str) -> Option<Mod> {
+    list.data.into_iter().find(|m| {
+        m.slug.eq_ignore_ascii_case(slug)
+            && (m.game_id == 0 || m.game_id == WOW_GAME_ID)
+            && m.links
+                .website_url
+                .as_deref()
+                .map_or(true, |u| u.contains("/wow/addons/"))
+    })
+}
+
+/// The slug of a CurseForge addon page, as authors put it in
+/// `## X-Website` when the `.toc` has no `X-Curse-Project-ID`:
+/// Auctionator 341 says only
+/// `https://www.curseforge.com/wow/addons/auctionator`.
+pub fn slug_from_url(url: &str) -> Option<String> {
+    let url = url.trim();
+    let rest = [
+        "https://www.curseforge.com/wow/addons/",
+        "https://curseforge.com/wow/addons/",
+        "http://www.curseforge.com/wow/addons/",
+        "http://curseforge.com/wow/addons/",
+    ]
+    .iter()
+    .find_map(|p| url.strip_prefix(p))?;
+    let slug = rest.split(['/', '?', '#']).next()?.to_ascii_lowercase();
+    valid_slug(&slug).then_some(slug)
+}
+
+/// What a CurseForge slug is made of (lowercase letters, digits, `-`, `_`);
+/// anything else never reaches a URL.
+fn valid_slug(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+}
+
+/// The newest release-type file of `m` for `flavor`; `id` names the
+/// project page when the answer carries no website.
+fn release_of(m: Mod, id: u64, flavor: Flavor) -> Result<Release, SourceError> {
+    if m.game_id != 0 && m.game_id != WOW_GAME_ID {
+        return Err(SourceError::NoRelease);
+    }
+    let page = m
         .links
         .website_url
         .unwrap_or_else(|| format!("https://www.curseforge.com/projects/{id}"));
     // Newest release-type file by date (ISO-8601 strings sort lexicographically).
-    let file = env
-        .data
+    let file = m
         .latest_files
         .into_iter()
         .filter(|f| f.release_type == 1 && targets(f, flavor))
@@ -529,6 +612,55 @@ mod tests {
         })
         .unwrap();
         assert_eq!(body, r#"{"modIds":[1,2],"filterPcOnly":true}"#);
+    }
+
+    #[test]
+    fn reads_the_slug_of_an_addon_page() {
+        // Auctionator 341: its only source line.
+        let slug = |u| slug_from_url(u);
+        assert_eq!(
+            slug("https://www.curseforge.com/wow/addons/auctionator").as_deref(),
+            Some("auctionator")
+        );
+        assert_eq!(
+            slug(" http://curseforge.com/wow/addons/Deadly-Boss-Mods/files?x=1 ").as_deref(),
+            Some("deadly-boss-mods")
+        );
+        assert_eq!(slug("https://www.curseforge.com/wow/addons/"), None);
+        assert_eq!(slug("https://www.curseforge.com/minecraft/mc-mods/jei"), None);
+        assert_eq!(slug("https://www.curseforge.com/wow/addons/a%2F..%2F"), None);
+        assert_eq!(slug("https://github.com/TheMouseNest/Auctionator"), None);
+    }
+
+    #[test]
+    fn a_slug_search_answers_the_wow_addon_with_that_slug() {
+        // Shaped like `GET /v1/mods/search?gameId=1&slug=auctionator`.
+        let json = r#"{"data":[
+          {"id":1,"slug":"auctionator","gameId":1,"links":{"websiteUrl":"https://www.curseforge.com/wow/addons/auctionator/x"}},
+          {"id":2,"slug":"auctionator","gameId":1,"links":{"websiteUrl":"https://www.curseforge.com/wow/addons/auctionator"},
+           "latestFiles":[{"displayName":"341","fileDate":"2026-10-13T00:00:00Z","releaseType":1,"gameVersions":["1.60.1"],
+                           "downloadUrl":"https://edge.forgecdn.net/files/1/2/Auctionator-341.zip"}]}],
+          "pagination":{"index":0,"pageSize":50,"resultCount":2,"totalCount":2}}"#;
+        let list: ModList = serde_json::from_str(json).unwrap();
+        let m = addon_with_slug(list, "auctionator").unwrap();
+        assert_eq!(m.id, 1, "the first match wins");
+
+        let list: ModList = serde_json::from_str(json).unwrap();
+        let m = list.data.into_iter().nth(1).unwrap();
+        let r = release_of(m, 2, Flavor::Forever).unwrap();
+        assert_eq!(r.version.as_str(), "341");
+        assert_eq!(r.url, "https://www.curseforge.com/wow/addons/auctionator");
+        assert!(r.download.is_some());
+
+        // Another game's project, or another kind of WoW project, is not it.
+        let other: ModList = serde_json::from_str(
+            r#"{"data":[{"id":3,"slug":"auctionator","gameId":432},
+                        {"id":4,"slug":"auctionator","gameId":1,"links":{"websiteUrl":"https://www.curseforge.com/wow/customization/auctionator"}}]}"#,
+        )
+        .unwrap();
+        assert!(addon_with_slug(other, "auctionator").is_none());
+        let empty: ModList = serde_json::from_str(r#"{"data":[]}"#).unwrap();
+        assert!(addon_with_slug(empty, "auctionator").is_none());
     }
 
     #[test]

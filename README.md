@@ -41,8 +41,10 @@ small file saying which games each zip is for. Tocsin reads it before
 downloading anything: you get the zip made for your game, and the list says
 when it is for an older or newer build than yours.
 
-If the addon doesn't say, Tocsin looks for a link in its changelog or readme.
-If there's simply no one to ask (addons sold on the author's own site, like
+If the addon doesn't say, Tocsin looks for a link in its changelog or readme;
+what the `.toc` declares always comes first. A link that leads nowhere any
+more (a repository made private) is skipped for the next place the addon
+names. If there's simply no one to ask (addons sold on the author's own site, like
 Zygor), it tells you to check by hand and gives you the link.
 
 A zip a guildmate sent you is tracked only if the addon inside names a site

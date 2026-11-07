@@ -38,6 +38,14 @@ pub enum SourceRef {
         /// Numeric project id.
         id: u64,
     },
+    /// CurseForge project known only by its page,
+    /// `## X-Website: https://www.curseforge.com/wow/addons/<slug>`, when the
+    /// `.toc` has no id (Auctionator). Looked up by slug, with the same key.
+    #[serde(rename = "curseforge-slug")]
+    CurseForgeSlug {
+        /// Slug from the page address, e.g. `auctionator`.
+        slug: String,
+    },
     /// tukui.org project (`## X-Tukui-ProjectID` or a tukui.org website). No key.
     Tukui {
         /// API slug, e.g. `elvui`.
@@ -79,9 +87,10 @@ where
 impl SourceRef {
     /// Every source the `.toc` advertises, best first: GitHub link in
     /// `X-Website`, the other key-free providers (Tukui, WoWInterface), the
-    /// CurseForge id, then any other website as a manual fallback. The
-    /// checker tries them in this order and skips providers it has no
-    /// credentials for. `## X-Wago-ID` is ignored: Wago is not supported.
+    /// CurseForge id (or, failing one, a CurseForge page in `X-Website`),
+    /// then any other website as a manual fallback. The checker tries them
+    /// in this order and skips providers it has no credentials for.
+    /// `## X-Wago-ID` is ignored: Wago is not supported.
     pub fn candidates_from_toc(toc: &Toc) -> Vec<Self> {
         let mut out = Vec::with_capacity(3);
         let site = toc.website();
@@ -102,7 +111,11 @@ impl SourceRef {
         }
         if let Some(id) = toc.curse_project_id() {
             out.push(Self::CurseForge { id });
+        } else if let Some(slug) = site.and_then(curseforge::slug_from_url) {
+            out.push(Self::CurseForgeSlug { slug });
         }
+        // The page stays as the last resort: without a CurseForge key it is
+        // still where the user can look.
         if let Some(u) = site {
             if !out
                 .iter()
@@ -125,7 +138,7 @@ impl SourceRef {
             Self::Github { .. } | Self::Tukui { .. } | Self::WowInterface { .. } | Self::Manual { .. } => {
                 true
             }
-            Self::CurseForge { .. } => creds.curseforge.is_some(),
+            Self::CurseForge { .. } | Self::CurseForgeSlug { .. } => creds.curseforge.is_some(),
         }
     }
 
@@ -138,6 +151,7 @@ impl SourceRef {
         match self {
             Self::Github { owner, repo, .. } => Some(format!("github:{owner}/{repo}").to_ascii_lowercase()),
             Self::CurseForge { id } => Some(format!("curseforge:{id}")),
+            Self::CurseForgeSlug { slug } => Some(format!("curseforge-slug:{}", slug.to_ascii_lowercase())),
             Self::Tukui { slug } => Some(format!("tukui:{}", slug.to_ascii_lowercase())),
             Self::WowInterface { id } => Some(format!("wowinterface:{id}")),
             Self::Manual { .. } => None,
@@ -148,7 +162,7 @@ impl SourceRef {
     pub fn provider(&self) -> &'static str {
         match self {
             Self::Github { .. } => "GitHub",
-            Self::CurseForge { .. } => "CurseForge",
+            Self::CurseForge { .. } | Self::CurseForgeSlug { .. } => "CurseForge",
             Self::Tukui { .. } => "Tukui",
             Self::WowInterface { .. } => "WoWInterface",
             Self::Manual { .. } => "Manual",
@@ -160,6 +174,7 @@ impl SourceRef {
         match self {
             Self::Github { owner, repo, .. } => format!("https://github.com/{owner}/{repo}/releases"),
             Self::CurseForge { id } => format!("https://www.curseforge.com/projects/{id}"),
+            Self::CurseForgeSlug { slug } => format!("https://www.curseforge.com/wow/addons/{slug}"),
             Self::Tukui { slug } => format!("https://tukui.org/{slug}"),
             Self::WowInterface { id } => format!("https://www.wowinterface.com/downloads/info{id}"),
             // Upgrade plain http:// links from old .toc files: we only ever
@@ -281,6 +296,11 @@ pub enum SourceError {
     /// Provider answered but had no usable release.
     #[error("no release found")]
     NoRelease,
+    /// The provider does not know the project (HTTP 404): deleted, made
+    /// private, or a dead link. Auctionator's changelog still links a GitHub
+    /// repository that answers 404 to everything.
+    #[error("project not found")]
+    NotFound,
     /// The source can't be queried automatically.
     #[error("manual source, open {0} to check")]
     Manual(String),
@@ -309,14 +329,32 @@ pub async fn fetch_latest(
                 .ok_or(SourceError::MissingCredentials("CurseForge"))?;
             curseforge::latest(http, key, *id, hint.flavor).await
         }
+        SourceRef::CurseForgeSlug { slug } => {
+            let key = creds
+                .curseforge
+                .as_deref()
+                .ok_or(SourceError::MissingCredentials("CurseForge"))?;
+            curseforge::latest_by_slug(http, key, slug, hint.flavor).await
+        }
         SourceRef::Tukui { slug } => tukui::latest(http, slug).await,
         SourceRef::WowInterface { id } => wowinterface::latest(http, *id).await,
         SourceRef::Manual { url } => Err(SourceError::Manual(url.clone())),
-    }?;
+    }
+    .map_err(not_found)?;
     Ok(Release {
         provider: source.provider().to_string(),
         ..release
     })
+}
+
+/// A 404 from a provider's API means the project is not there, which the
+/// checker treats like "no release" and not as a failure: it moves on to the
+/// next source instead of ending with an error.
+fn not_found(e: SourceError) -> SourceError {
+    match e {
+        SourceError::Http(crate::http::HttpError::Status { status: 404, .. }) => SourceError::NotFound,
+        other => other,
+    }
 }
 
 #[cfg(test)]
@@ -364,6 +402,76 @@ mod tests {
         let c = SourceRef::candidates_from_toc(&t);
         assert_eq!(c[0], SourceRef::WowInterface { id: 17019 });
         assert_eq!(c.len(), 2);
+    }
+
+    #[test]
+    fn a_curseforge_page_in_x_website_is_a_curseforge_source() {
+        // Auctionator 341, installed by hand from CurseForge: no id, only the page.
+        let t = Toc::parse(
+            "## Title: Auctionator\n## Version: 341\n\
+             ## X-Website: https://www.curseforge.com/wow/addons/auctionator\n",
+        );
+        assert_eq!(
+            SourceRef::candidates_from_toc(&t),
+            vec![
+                SourceRef::CurseForgeSlug {
+                    slug: "auctionator".into()
+                },
+                SourceRef::Manual {
+                    url: "https://www.curseforge.com/wow/addons/auctionator".into()
+                },
+            ]
+        );
+        let s = &SourceRef::candidates_from_toc(&t)[0];
+        assert_eq!(s.provider(), "CurseForge");
+        assert_eq!(s.web_url(), "https://www.curseforge.com/wow/addons/auctionator");
+        assert!(!s.is_usable(&Credentials::default()));
+
+        // An id says the same thing better: no second CurseForge entry.
+        let t = Toc::parse(
+            "## X-Curse-Project-ID: 7\n## X-Website: https://www.curseforge.com/wow/addons/auctionator\n",
+        );
+        assert_eq!(
+            SourceRef::candidates_from_toc(&t)[0],
+            SourceRef::CurseForge { id: 7 }
+        );
+        assert!(!SourceRef::candidates_from_toc(&t)
+            .iter()
+            .any(|s| matches!(s, SourceRef::CurseForgeSlug { .. })));
+
+        // It round-trips through `tocsin.toml`.
+        let s: SourceRef = toml::from_str(
+            r#"type = "curseforge-slug"
+slug = "auctionator""#,
+        )
+        .unwrap();
+        assert_eq!(
+            s,
+            SourceRef::CurseForgeSlug {
+                slug: "auctionator".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_404_means_the_project_is_not_there() {
+        let gone = SourceError::Http(crate::http::HttpError::Status {
+            host: "api.github.com".into(),
+            status: 404,
+        });
+        assert!(matches!(not_found(gone), SourceError::NotFound));
+        let busy = SourceError::Http(crate::http::HttpError::Status {
+            host: "api.github.com".into(),
+            status: 503,
+        });
+        assert!(matches!(
+            not_found(busy),
+            SourceError::Http(crate::http::HttpError::Status { status: 503, .. })
+        ));
+        assert!(matches!(
+            not_found(SourceError::NoRelease),
+            SourceError::NoRelease
+        ));
     }
 
     #[test]
