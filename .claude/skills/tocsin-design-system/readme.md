@@ -72,11 +72,11 @@ Cinzel, Alegreya Sans and JetBrains Mono are loaded from Google Fonts in the HTM
   - `actions/Button` — primary · secondary · danger · selected · remove mark; sm / md / chip
   - `display/Badge` — status badge; `display/Frame` + `GoldRule`
   - `forms/SearchInput`
-  - `feedback/Notice` + `ConfirmBanner` + `Loader`; `feedback/HelpTip`: a "?" that opens or closes the explanation of a badge; `feedback/HoverTip`: the whole of a mono value cut to fit its column, on hover
+  - `feedback/Notice` + `ConfirmBanner` + `Progress` (a download's bar beside the footer notice) + `Loader`; `feedback/HelpTip`: a "?" that opens or closes the explanation of a badge; `feedback/HoverTip`: the whole of a mono value cut to fit its column, on hover
   - `library/AddonRow` — head, child, missing, removed, wrapped
 - `ui_kits/tocsin-desktop/` — the visual reference: all three pages in the two-column shell (`Library.dc.html`, tweak `startScreen` and `theme`)
 - `rust/theme.rs` — the tokens and styles as iced 0.14 code, the earlier version (the crate's `theme.rs` has moved on; see `rust/INTEGRATION.md` §9)
 - `rust/INTEGRATION.md` — how the system was applied: assets, Cargo features, main.rs, app shell, migration table
 - `SKILL.md` — the workflow every UI change follows
 
-Component inventory mirrors what `theme.rs` and `library.rs` define (primary/ghost/danger buttons, badge, card, row variants, confirm, loader dot, text input, notice). **Intentional additions:** `selected` button variant (the code reuses `primary` for active chips; a distinct gold state reads better next to crimson actions) and `GoldRule` (frame divider).
+Component inventory mirrors what `theme.rs` and `library.rs` define (primary/ghost/danger buttons, badge, card, row variants, confirm, loader dot, text input, notice, download progress). **Intentional additions:** `selected` button variant (the code reuses `primary` for active chips; a distinct gold state reads better next to crimson actions) and `GoldRule` (frame divider).

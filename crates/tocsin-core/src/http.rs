@@ -3,6 +3,8 @@
 //! * rustls only (no OpenSSL, no system TLS quirks);
 //! * HTTPS enforced: plain `http://` URLs are refused before any request;
 //! * short connect/overall timeouts so a stalled API can't freeze the UI;
+//!   downloads stop after [`DOWNLOAD_IDLE`] without a byte, within a
+//!   deadline sized to the file;
 //! * response bodies capped — we only ever read small JSON documents;
 //! * no cookies, explicit User-Agent;
 //! * redirects checked hop by hop, before they are followed: an API request
@@ -25,6 +27,23 @@ const MAX_REDIRECTS: usize = 3;
 
 /// Maximum JSON body we are willing to buffer (1 MiB is far above any API answer).
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
+
+/// A download gives up after this long without a byte. Downloads have no
+/// fixed overall timeout: a 450 MB voice-over pack takes minutes on a slow
+/// line; each request gets a deadline sized to its file instead (see
+/// [`Http::get_bytes`]).
+pub const DOWNLOAD_IDLE: Duration = Duration::from_secs(30);
+
+/// The rest of a download, from `offset` on: see [`Http::get_bytes`].
+#[derive(Debug, Clone, Copy)]
+pub struct RangeFrom<'a> {
+    /// Bytes already on disk.
+    pub offset: u64,
+    /// The first answer's strong `ETag` (or `Last-Modified`): the server
+    /// sends the whole file again, not a piece of another one, if the file
+    /// changed meanwhile.
+    pub if_range: Option<&'a str>,
+}
 
 const USER_AGENT: &str = concat!(
     "tocsin/",
@@ -81,8 +100,8 @@ pub enum HttpError {
 pub struct Http {
     /// API requests: redirects only within the original host.
     client: Client,
-    /// Release zips: redirects only to trusted download hosts, and a longer
-    /// overall timeout, since a 20 MiB zip on a slow line takes a while.
+    /// Release zips: redirects only to trusted download hosts, no overall
+    /// timeout but an idle one, and a deadline per request (see `get_bytes`).
     downloads: Client,
     /// Addon icons: redirects only to the icon hosts, and a short timeout,
     /// since a list icon that is slow to come is not worth waiting for.
@@ -134,9 +153,9 @@ impl Http {
             }
         });
         Self {
-            client: build(api, Duration::from_secs(20)),
-            downloads: build(downloads, Duration::from_secs(300)),
-            images: build(images, Duration::from_secs(10)),
+            client: build(api, Some(Duration::from_secs(20))),
+            downloads: build(downloads, None),
+            images: build(images, Some(Duration::from_secs(10))),
             cache: Arc::new(Mutex::new(HashMap::new())),
             inflight: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -166,10 +185,33 @@ impl Http {
 
     /// GET `url` for a file download: HTTPS enforced, status checked, body
     /// left to the caller to stream (see `download::fetch`). Never cached.
-    pub async fn get_bytes(&self, url: &str) -> Result<reqwest::Response, HttpError> {
+    ///
+    /// The whole request, body included, must finish within `deadline`
+    /// (the caller sizes it to the file); the client also gives up after
+    /// [`DOWNLOAD_IDLE`] without a byte. With `range`, only the bytes from
+    /// its offset on are asked for (`206 Partial Content`); the caller
+    /// checks what came back. The body is asked for as is (`identity`), so
+    /// byte offsets are offsets in the file.
+    pub async fn get_bytes(
+        &self,
+        url: &str,
+        range: Option<RangeFrom<'_>>,
+        deadline: Duration,
+    ) -> Result<reqwest::Response, HttpError> {
         let parsed = parse_https(url)?;
         let host = parsed.host_str().unwrap_or("server").to_string();
-        let resp = self.downloads.get(parsed).send().await?;
+        let mut req = self
+            .downloads
+            .get(parsed)
+            .timeout(deadline)
+            .header(reqwest::header::ACCEPT_ENCODING, "identity");
+        if let Some(r) = range {
+            req = req.header(reqwest::header::RANGE, format!("bytes={}-", r.offset));
+            if let Some(v) = r.if_range {
+                req = req.header(reqwest::header::IF_RANGE, v);
+            }
+        }
+        let resp = req.send().await?;
         // The redirect policy already vetted every hop; checking where the
         // body actually comes from costs nothing and survives a policy change.
         let landed = resp.url().host_str().unwrap_or_default();
@@ -432,12 +474,19 @@ pub fn browser_url(raw: &str) -> Option<String> {
     (url.scheme() == "https" && has_host && !has_userinfo).then(|| url.into())
 }
 
-fn build(redirects: Policy, timeout: Duration) -> Client {
-    Client::builder()
+/// A client with the shared policy. `timeout` bounds a whole request; `None`
+/// (downloads) leaves that to each request and stops on [`DOWNLOAD_IDLE`]
+/// without a byte instead.
+fn build(redirects: Policy, timeout: Option<Duration>) -> Client {
+    let builder = Client::builder()
         .user_agent(USER_AGENT)
         .https_only(true)
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(timeout)
+        .connect_timeout(Duration::from_secs(10));
+    let builder = match timeout {
+        Some(t) => builder.timeout(t),
+        None => builder.read_timeout(DOWNLOAD_IDLE),
+    };
+    builder
         .redirect(redirects)
         // No `cookies` feature enabled: the client never stores cookies.
         .build()

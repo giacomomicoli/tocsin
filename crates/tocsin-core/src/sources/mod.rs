@@ -210,6 +210,10 @@ pub struct Release {
     /// it says: a GitHub release built with the packager carries a
     /// `release.json` that lists them. `None` when the provider does not say.
     pub interfaces: Option<Vec<u32>>,
+    /// Size of `download` in bytes, when the provider says (CurseForge's
+    /// `fileLength`, a GitHub asset's `size`). A zip larger than the usual
+    /// cap is accepted only up to this size (see [`crate::download::limit`]).
+    pub size: Option<u64>,
 }
 
 impl Release {

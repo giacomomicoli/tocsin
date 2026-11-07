@@ -52,6 +52,9 @@ pub enum ArchiveError {
     /// The wrapper-folder layout of a source zip.
     #[error("this is a source zip ({0}/…), not a release: download the release zip instead")]
     SourceZip(String),
+    /// The disk filled up while unpacking.
+    #[error("the disk is full")]
+    DiskFull,
     /// Disk failure.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -384,7 +387,13 @@ fn copy_capped(mut from: impl Read, to: &mut impl Write, limit: u64) -> Result<u
         if room == 0 {
             return Err(ArchiveError::TooLarge);
         }
-        to.write_all(&buf[..n])?;
+        to.write_all(&buf[..n]).map_err(|e| {
+            if crate::disk::is_full(&e) {
+                ArchiveError::DiskFull
+            } else {
+                e.into()
+            }
+        })?;
         total += n as u64;
     }
 }

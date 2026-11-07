@@ -154,6 +154,7 @@ pub async fn latest(http: &Http, slug: &str) -> Result<Release, SourceError> {
         digest: None,
         provider: String::new(),
         interfaces: None,
+        size: None,
     })
 }
 

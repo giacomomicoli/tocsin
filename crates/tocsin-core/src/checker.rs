@@ -461,6 +461,7 @@ mod tests {
             digest: None,
             provider: "GitHub".into(),
             interfaces: None,
+            size: None,
         }
     }
 
@@ -516,6 +517,7 @@ mod tests {
             digest: None,
             provider: String::new(),
             interfaces: None,
+            size: None,
         };
         assert!(UpdateStatus::Manual("https://zygorguides.com/".into()).needs_attention());
         assert!(UpdateStatus::NoSource.needs_attention());

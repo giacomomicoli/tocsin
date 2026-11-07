@@ -41,3 +41,26 @@ export function Loader({ lit = 0, count = 3 }) {
     </div>
   );
 }
+
+/** Download progress beside the notice: `value` from 0 to 1, or none while the size is unknown (label only). */
+export function Progress({ value, label }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-8)" }}>
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-12)", color: "var(--text-2)" }}>{label}</span>
+      {value != null && (
+        <span
+          style={{
+            width: "var(--w-progress)",
+            height: "var(--h-progress)",
+            borderRadius: "var(--r-1)",
+            border: "1px solid var(--border-frame)",
+            background: "var(--surface-sunken)",
+            overflow: "hidden",
+          }}
+        >
+          <span style={{ display: "block", height: "100%", width: `${Math.round(value * 100)}%`, background: "var(--accent)" }} />
+        </span>
+      )}
+    </div>
+  );
+}

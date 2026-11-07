@@ -50,6 +50,7 @@ pub async fn latest(http: &Http, id: u64) -> Result<Release, SourceError> {
             .map(Digest::Md5),
         provider: String::new(),
         interfaces: None,
+        size: None,
     })
 }
 
