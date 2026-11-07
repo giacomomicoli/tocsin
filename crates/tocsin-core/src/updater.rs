@@ -249,7 +249,7 @@ pub(crate) fn prune_dir(dir: &Path, max_age: Duration, now: SystemTime) -> usize
 
 /// Which of `folders` already exist in `AddOns` (in any form, a stray file
 /// or a link included) or among the disabled addons.
-fn conflicts(addons_dir: &Path, folders: &[String]) -> Vec<String> {
+pub(crate) fn conflicts(addons_dir: &Path, folders: &[String]) -> Vec<String> {
     let disabled = addons_dir.join(install::DISABLED_DIR);
     let disabled_ok = install::is_real_dir(&disabled);
     folders

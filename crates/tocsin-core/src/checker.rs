@@ -102,6 +102,8 @@ pub async fn check_one(
     let mut first_error: Option<String> = None;
     let mut manual: Option<String> = None;
     let mut only_missing = true;
+    let mut no_key: Vec<&'static str> = Vec::new();
+    let mut set_aside: Option<Release> = None;
     for source in &addon.sources {
         if let SourceRef::Manual { .. } = source {
             manual.get_or_insert_with(|| source.web_url());
@@ -109,6 +111,9 @@ pub async fn check_one(
         }
         if !source.is_usable(creds) {
             tracing::debug!(addon = %addon.folder, provider = source.provider(), "skipped: no API key");
+            if !no_key.contains(&source.provider()) {
+                no_key.push(source.provider());
+            }
             continue;
         }
         let hint = crate::sources::github::Hint {
@@ -118,6 +123,10 @@ pub async fn check_one(
             client_interface,
         };
         match fetch_latest(http, creds, source, hint).await {
+            Ok(release) if is_stale_guess(addon, source, &release) => {
+                tracing::debug!(addon = %addon.folder, "guessed repository is behind and has no zip; trying the next source");
+                set_aside.get_or_insert(release);
+            }
             Ok(release) => return compare(addon, release),
             Err(SourceError::Manual(url)) => {
                 manual.get_or_insert(url);
@@ -129,28 +138,53 @@ pub async fn check_one(
             }
         }
     }
-    settle(addon, first_error, manual, only_missing)
+    match set_aside {
+        // Nothing else to say about it: the guess is all there is.
+        Some(release) if first_error.is_none() && manual.is_none() && no_key.is_empty() => {
+            compare(addon, release)
+        }
+        _ => settle(first_error, manual, only_missing, &no_key),
+    }
 }
 
-/// The status of an addon no source gave a release for. "No release" or
-/// "not found" from every API asked (Ace3's GitHub mirror has no releases;
-/// the repository in Auctionator's changelog is gone) is not a failure worth
-/// a red badge when a page to check by hand exists.
+/// A release not worth believing: from a GitHub repository the addon's own
+/// `.toc` does not name (found in its docs, or taken from its family head),
+/// with no zip to download, and older than what is installed. Details links
+/// its repository in its docs; the newest release there is a 2021 tag with no
+/// files, so a 2026 build read as "Ahead of source" while the addon is
+/// published on CurseForge. Such a release is set aside for the next source.
+fn is_stale_guess(addon: &InstalledAddon, source: &SourceRef, release: &Release) -> bool {
+    let SourceRef::Github { .. } = source else {
+        return false;
+    };
+    let declared = SourceRef::candidates_from_toc(&addon.toc)
+        .iter()
+        .any(|c| c.project_key() == source.project_key());
+    let behind = addon
+        .installed
+        .as_ref()
+        .is_some_and(|installed| release.version.is_older_than(installed));
+    !declared && release.download.is_none() && behind
+}
+
+/// The status of an addon no source gave a usable release for. "No release"
+/// or "not found" from every API asked (Ace3's GitHub mirror has no
+/// releases; the repository in Auctionator's changelog is gone) is not a
+/// failure worth a red badge when a page to check by hand exists. `no_key`
+/// lists the providers skipped for want of a key.
 fn settle(
-    addon: &InstalledAddon,
     first_error: Option<String>,
     manual: Option<String>,
     only_missing: bool,
+    no_key: &[&str],
 ) -> UpdateStatus {
     match (first_error, manual) {
         (Some(_), Some(url)) if only_missing => UpdateStatus::Manual(url),
         (Some(e), _) => UpdateStatus::Error(e),
         (None, Some(url)) => UpdateStatus::Manual(url),
+        // Only keyed providers were left and we hold none of the keys.
         (None, None) => {
-            // Only keyed providers were advertised and we hold none of the keys.
-            let mut needed: Vec<&str> = addon.sources.iter().map(SourceRef::provider).collect();
-            needed.dedup();
-            UpdateStatus::Error(format!("API key needed for {} (see README)", needed.join(" or ")))
+            UpdateStatus::Error(format!("API key needed for {} (see README)", no_key.join(" or ")))
         }
     }
 }
@@ -371,31 +405,103 @@ mod tests {
     fn a_source_that_is_gone_falls_back_to_the_page() {
         // Auctionator 341 without a CurseForge key: CurseForge skipped, the
         // changelog's GitHub repository answered 404, the page is left.
-        let a = addon("## X-Website: https://www.curseforge.com/wow/addons/auctionator\n");
         let page = "https://www.curseforge.com/wow/addons/auctionator".to_string();
         let gone = Some("GitHub: project not found".to_string());
         assert_eq!(
-            settle(&a, gone.clone(), Some(page.clone()), true),
+            settle(gone.clone(), Some(page.clone()), true, &[]),
             UpdateStatus::Manual(page.clone())
         );
         // A real failure (timeout, 5xx) still says so.
         assert_eq!(
-            settle(&a, gone.clone(), Some(page), false),
+            settle(gone.clone(), Some(page), false, &[]),
             UpdateStatus::Error("GitHub: project not found".into())
         );
         // Nothing to fall back on: the user still learns why.
         assert_eq!(
-            settle(&a, gone, None, true),
+            settle(gone, None, true, &[]),
             UpdateStatus::Error("GitHub: project not found".into())
         );
     }
 
-    #[test]
-    fn keyed_sources_are_named_once() {
+    #[tokio::test]
+    async fn keyed_sources_are_named_once() {
+        // No key: nothing is fetched, both CurseForge entries are skipped.
         let mut a = addon("## X-Curse-Project-ID: 5\n");
         a.sources.push(SourceRef::CurseForgeSlug { slug: "x".into() });
         assert_eq!(
-            settle(&a, None, None, true),
+            check_one(
+                &Http::new(),
+                &Credentials::default(),
+                &a,
+                false,
+                Flavor::Retail,
+                None
+            )
+            .await,
+            UpdateStatus::Error("API key needed for CurseForge (see README)".into())
+        );
+    }
+
+    /// Details' repository, as its docs link it: the newest release is
+    /// `DetailsRetail.v9.1.0.8888.145` from 2021, with no files.
+    fn details_repo() -> SourceRef {
+        SourceRef::Github {
+            owner: "Tercioo".into(),
+            repo: "Details-Damage-Meter".into(),
+            tag_prefix: None,
+        }
+    }
+
+    fn release(version: &str, download: Option<&str>) -> Release {
+        Release {
+            version: crate::Version::parse(version),
+            url: String::new(),
+            published_at: None,
+            download: download.map(str::to_string),
+            digest: None,
+            provider: "GitHub".into(),
+            interfaces: None,
+        }
+    }
+
+    #[test]
+    fn a_guessed_repository_behind_the_install_is_set_aside() {
+        let details =
+            addon("## Version: #Details.20261104.15400.172-1-gcec582c\n## X-Curse-Project-ID: 61284\n");
+        let old = release("v9.0.5.8357.144", None);
+        assert!(is_stale_guess(&details, &details_repo(), &old));
+        // A zip to install, a newer release or no installed version: believed.
+        assert!(!is_stale_guess(
+            &details,
+            &details_repo(),
+            &release("v9.0.5", Some("https://x"))
+        ));
+        assert!(!is_stale_guess(
+            &details,
+            &details_repo(),
+            &release("Details.20261107.15402.172", None)
+        ));
+        let unversioned = addon("## X-Curse-Project-ID: 61284\n");
+        assert!(!is_stale_guess(&unversioned, &details_repo(), &old));
+        // The `.toc` names the repository itself: its answer stands.
+        let declared = addon(
+            "## Version: #Details.20261104.15400.172\n## X-Website: https://github.com/Tercioo/Details-Damage-Meter\n",
+        );
+        assert!(!is_stale_guess(&declared, &details_repo(), &old));
+        // Other providers are not guesses.
+        assert!(!is_stale_guess(
+            &details,
+            &SourceRef::CurseForge { id: 61284 },
+            &old
+        ));
+    }
+
+    #[test]
+    fn a_set_aside_release_gives_way_to_the_key_it_needs() {
+        // Details without a CurseForge key: CurseForge skipped, the docs'
+        // repository set aside. The truth is the missing key, not "Ahead".
+        assert_eq!(
+            settle(None, None, true, &["CurseForge"]),
             UpdateStatus::Error("API key needed for CurseForge (see README)".into())
         );
     }

@@ -25,7 +25,12 @@ The addons used while developing cover the interesting cases:
 - ElvUI: Tukui source with a negative project id, six conditional `## Title`
   lines (`[AllowLoadGameType …]`), `X-Tukui-ProjectFolders`.
 - Details: a GitHub "Source code" zip extracted as-is — misnamed folder,
-  `.pkgmeta`, no version.
+  `.pkgmeta`, no version. Its CurseForge zip unpacked with Windows'
+  "Extract all" puts its eight folders one level too deep, inside
+  `Details-Details.20261104.15400.172-1-gcec582c/`; its version is
+  `#Details.20261104.15400.172-1-gcec582c`; its plugins declare no version
+  and no source; its docs link a GitHub repository whose last release
+  (2021) has no files.
 - HandyNotes: head of a family whose plugins come from other authors.
 - Ace3: a library with `Release-r1403` as version and a GitHub mirror
   without releases.

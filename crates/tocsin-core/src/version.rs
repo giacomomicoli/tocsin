@@ -47,13 +47,17 @@ fn ends_with_ignore_case(s: &str, suffix: &str) -> bool {
 }
 
 /// Where the version starts after a leading name, if there is one: right
-/// after a `-`, `_` or space that follows a name with letters in it, at a
-/// dotted number (`2.9.0`, `v12.0.376`). Plain digit runs (`r1234`) and a
-/// text with no name before its number are left alone.
+/// after a `-`, `_`, space or dot that follows a name with letters in it, at
+/// a dotted number (`2.9.0`, `v12.0.376`). Plain digit runs (`r1234`) and a
+/// text with no name before its number are left alone. The dot is Details':
+/// its `.toc` says `#Details.20261104.15400.172-1-gcec582c` and CurseForge
+/// `Details.20261107.15402.172`. A dot inside a version (`v12.0.376`) is
+/// never cut there: the label would lose a number, which [`Version::label`]
+/// refuses.
 fn version_start(s: &str) -> Option<usize> {
     let bytes = s.as_bytes();
     (1..bytes.len()).find(|&at| {
-        matches!(bytes[at - 1], b'-' | b'_' | b' ')
+        matches!(bytes[at - 1], b'-' | b'_' | b' ' | b'.')
             && bytes[..at - 1].iter().any(u8::is_ascii_alphabetic)
             && is_dotted_number(&bytes[at..])
     })
@@ -256,6 +260,12 @@ mod tests {
         assert_eq!(v("ElvUI 13.80").label(), "13.80");
         assert_eq!(v("Questie_10.2.0.ZIP").label(), "10.2.0");
         assert_eq!(v("1.4.2.zip").label(), "1.4.2");
+        // Details: a dot after the name, a `#` before it (issue #27).
+        assert_eq!(
+            v("#Details.20261104.15400.172-1-gcec582c").label(),
+            "20261104.15400.172-1-gcec582c"
+        );
+        assert_eq!(v("Details.20261107.15402.172").label(), "20261107.15402.172");
     }
 
     #[test]
@@ -285,6 +295,11 @@ mod tests {
         // 5.12.0 for what compares as 2.5.12.0.
         assert_eq!(v("WeakAuras2-5.12.0").label(), "WeakAuras2-5.12.0");
         assert_eq!(v("Bartender4_4.15.3.zip").label(), "Bartender4_4.15.3.zip");
+        // A dot inside the version is not a name's end: `v12` → `0.376` would
+        // lose the 12, `r5.1.2` the 5.
+        assert_eq!(v("v12.0.376").label(), "v12.0.376");
+        assert_eq!(v("r5.1.2").label(), "r5.1.2");
+        assert_eq!(v("WeakAuras2.5.12.0").label(), "WeakAuras2.5.12.0");
         // Marker letters in the name are not a pre-release: cleaned like any other.
         assert_eq!(v("Preydator-1.2.3.zip").label(), "1.2.3");
         for raw in [
@@ -292,6 +307,7 @@ mod tests {
             "Details-Retail-v12.0.376",
             "ElvUI 13.80",
             "WarcraftLogs-2.1.0-beta2.zip",
+            "#Details.20261104.15400.172-1-gcec582c",
         ] {
             assert_eq!(v(v(raw).label()), v(raw));
         }

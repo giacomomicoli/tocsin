@@ -22,7 +22,7 @@ Copy comes straight from the codebase; keep its voice.
 - **Facts over reassurance.** "required by Routine · not installed", "removed · 11.1.2 kept until the next change", "CurseForge offers no direct download — use Open".
 - **Middle dot ` · ` separates facts**; em dash for a consequence. Ellipsis on progress labels: "Checking…", "Working…", "Installing…", "Search…".
 - **Errors are for the user:** short, no URLs, no internals.
-- **Status labels are fixed** (`UpdateStatus::label()`): Update available, Up to date, Ahead of source, Version unknown, Check manually, No source, Ignored, Error — plus Missing, Disabled, Not checked. Badges render them uppercase.
+- **Status labels are fixed** (`UpdateStatus::label()`): Update available, Up to date, Ahead of source, Version unknown, Check manually, No source, Ignored, Error — plus Missing, Disabled, Not checked, Not loaded. Badges render them uppercase.
 - The fantasy theme is **visual only** — no lore-speak in UI copy ("Summon updates" ✗).
 - No emoji.
 
@@ -32,7 +32,7 @@ Copy comes straight from the codebase; keep its voice.
 - **Spacing.** Pixel steps 2–24; compact. Content padding 20, page gap 14, row gap 8, row padding 12/14 (child 10/14, indent 24), gilded frame 3 + 16/18. The full list is `tokens/spacing.css` = `theme::space`.
 - **Backgrounds.** Vertical linear gradient on the app (void → deeper void; parchment → sand). No imagery, no textures, no patterns — iced would need image widgets and we have no licensed art.
 - **Frames.** The gilded frame: outer 1px gold-600, r4, gradient fill, drop shadow; 3px inset; inner 1px gold hairline at 16%, r2. In the app it holds the Settings sections only (Game Folders, API Keys, Theme). A 1px horizontal gold gradient rule divides sections (under every page head, in the sidebar).
-- **Rows / cards.** Flat `--surface-row`, 1px `--border-row`, r2. Children: `--surface-child`, indented with `└`. Missing dependency: transparent with red-tinted border. Disabled/removed: 40% fill, `--text-3`.
+- **Rows / cards.** Flat `--surface-row`, 1px `--border-row`, r2. Children: `--surface-child`, indented with `└`. Missing dependency and wrapped folder (addons one level too deep, head-level): transparent with red-tinted border. Disabled/removed: 40% fill, `--text-3`.
 - **Corners.** Near-square: 2 (badge, row), 3 (button, input), 4 (frame). No pills.
 - **Shadows.** One per container. Frame drop shadow; gold glow on focus/selected; no inner shadows.
 - **Hover.** Ghost buttons get a 8% gold wash; primary brightens to crimson-400; rows switch border to `--border-row-hover` (gold-700). **Press:** primary gradient inverts. No scale/shrink.
@@ -73,7 +73,7 @@ Cinzel, Alegreya Sans and JetBrains Mono are loaded from Google Fonts in the HTM
   - `display/Badge` — status badge; `display/Frame` + `GoldRule`
   - `forms/SearchInput`
   - `feedback/Notice` + `ConfirmBanner` + `Loader`; `feedback/HelpTip`: a "?" that opens or closes the explanation of a badge; `feedback/HoverTip`: the whole of a mono value cut to fit its column, on hover
-  - `library/AddonRow` — head, child, missing, removed
+  - `library/AddonRow` — head, child, missing, removed, wrapped
 - `ui_kits/tocsin-desktop/` — the visual reference: all three pages in the two-column shell (`Library.dc.html`, tweak `startScreen` and `theme`)
 - `rust/theme.rs` — the tokens and styles as iced 0.14 code, the earlier version (the crate's `theme.rs` has moved on; see `rust/INTEGRATION.md` §9)
 - `rust/INTEGRATION.md` — how the system was applied: assets, Cargo features, main.rs, app shell, migration table

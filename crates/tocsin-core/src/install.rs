@@ -73,6 +73,9 @@ pub enum InstallError {
     /// Only a removed family can be deleted for good.
     #[error("only a removed addon can be deleted")]
     NotRemoved,
+    /// The folder no longer holds only addon folders (see [`crate::wrapper`]).
+    #[error("{0} no longer holds only addon folders; nothing was moved")]
+    NotWrapper(String),
     /// Disk failure.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -305,158 +308,291 @@ pub fn install(addons_dir: &Path, zip: &Path, req: &Request<'_>) -> Result<Outco
     }
 
     let new_folders: Vec<String> = manifest.folders.keys().cloned().collect();
-    // `archive` already refuses these; the swap below joins them to
-    // `AddOns`, so it checks again rather than rely on another module.
-    if let Some(bad) = new_folders.iter().find(|f| !is_plain_name(f)) {
-        return Err(ArchiveError::UnsafeEntry(bad.clone()).into());
-    }
     let staging_root = own_dir(addons_dir, STAGING_DIR)?;
-    let disabled_root = own_dir(addons_dir, DISABLED_DIR)?;
-    let mut log = Log::load(addons_dir)?;
-    // The record this zip updates: the one already covering any of its
-    // folders (updating WeakAuras from the WeakAurasOptions row must not open
-    // a second record), else a new one under the requested key when the zip
-    // ships that folder, else under the zip's main folder.
-    // A requested key that already names a *different* release (the family
-    // head, when the GUI once passed it for a member's update) is not reused:
-    // its folders would be evicted as stale.
-    let key: String = match new_folders.iter().find_map(|f| log.key_covering(f)) {
-        Some(k) => k.to_string(),
-        None if new_folders.iter().any(|f| f == req.key)
-            && log
-                .installs
-                .get(req.key)
-                .map_or(true, |r| r.current.folders.is_empty()) =>
-        {
-            req.key.to_string()
-        }
-        None => main_folder(&manifest.folders, req.key).unwrap_or_else(|| req.key.to_string()),
-    };
-    let old = log.installs.get(&key).cloned();
-    // Installing the very zip that is on disk would only throw away the
-    // previous generation. Seen with Routine: the GitHub build of v12.0.378
-    // says `## Version: v12.0.372` in its .toc, so without this guard every
-    // "Update" replaced the backup with a copy of the current folder.
-    if let Some(r) = &old {
-        let same = r.current.version == req.version && !r.sha256.is_empty() && r.sha256 == req.sha256;
-        let in_place =
-            !r.current.folders.is_empty() && r.current.folders.iter().all(|f| addons_dir.join(f).is_dir());
-        if same && in_place {
-            return Err(InstallError::AlreadyInstalled(req.version.to_string()));
-        }
-    }
-
-    // Everything that must leave AddOns: folders in the zip that exist, plus
-    // folders of the previous generation the new zip no longer ships. Found
-    // (and refused if one is a link) before anything is written.
-    let mut to_backup = present(addons_dir, &new_folders)?;
-    if let Some(r) = &old {
-        for f in present(addons_dir, &r.current.folders)? {
-            if !to_backup.contains(&f) {
-                to_backup.push(f);
-            }
-        }
-    }
-    // Updating a disabled addon re-enables it: the parked copy comes back
-    // first so it is backed up like any other previous version.
-    let parked: Vec<String> = present(&disabled_root, &new_folders)?
-        .into_iter()
-        .filter(|f| !to_backup.contains(f))
-        .collect();
-
-    let staging = fresh_dir(&staging_root, &key)?;
-    let extracted = archive::extract(zip, &staging);
+    let swap = Swap::plan(addons_dir, new_folders, &manifest.folders, req)?;
+    let staging = fresh_dir(&staging_root, &swap.key)?;
+    let extracted = archive::extract(zip, &staging, manifest.wrapper.as_deref());
     if let Err(e) = extracted {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(e.into());
     }
+    swap.commit(addons_dir, &Incoming::Staged(staging), req)
+}
 
-    if !parked.is_empty() {
-        match enable(addons_dir, &parked) {
-            Ok(back) => to_backup.extend(back),
-            Err(e) => {
-                let _ = std::fs::remove_dir_all(&staging);
+/// Move the addon folders that `wrapper`, a folder in `AddOns` with no
+/// `.toc` of its own, holds one level too deep (see [`crate::wrapper`]) up
+/// into `AddOns`, where the game loads them. It goes like an install from
+/// that folder: folders of the same name already in `AddOns` (or disabled)
+/// go to the backup, so Rollback brings them back, and the move undoes
+/// itself on failure. The wrapper is removed once empty; docs left in it
+/// stay. Nothing is moved unless the folder is a wrapper right now.
+pub fn move_up(
+    addons_dir: &Path,
+    wrapper: &str,
+    client: &crate::client::GameClient,
+) -> Result<Outcome, InstallError> {
+    if !is_plain_name(wrapper) {
+        return Err(InstallError::UnsafeDir(wrapper.to_string()));
+    }
+    let dir = addons_dir.join(wrapper);
+    let not_wrapper = || InstallError::NotWrapper(wrapper.to_string());
+    if !movable(&dir)? {
+        return Err(not_wrapper());
+    }
+    let crate::wrapper::Layout::Wrapper(inner) = crate::wrapper::on_disk(&dir) else {
+        return Err(not_wrapper());
+    };
+    // `on_disk` lists links apart; check again right before the renames.
+    for f in &inner {
+        if !is_plain_name(f) || !movable(&dir.join(f))? {
+            return Err(InstallError::UnsafeDir(f.clone()));
+        }
+    }
+    let read = |path: &Path| crate::addon::InstalledAddon::from_dir_for(path, client);
+    let tocs: BTreeMap<String, Toc> = inner
+        .iter()
+        .map(|f| (f.clone(), read(&dir.join(f)).map(|a| a.toc).unwrap_or_default()))
+        .collect();
+    let key = main_folder(&tocs, "").unwrap_or_else(|| wrapper.to_string());
+    let version = tocs
+        .get(&key)
+        .and_then(Toc::version)
+        .unwrap_or(UNKNOWN_VERSION)
+        .to_string();
+    let replacing = read(&addons_dir.join(&key)).and_then(|a| a.toc.version().map(str::to_string));
+    let req = Request {
+        key: &key,
+        provider: "local",
+        source: None,
+        version: &version,
+        sha256: "",
+        flavor: client.flavor,
+        client_interface: client.interface(),
+        replacing_version: replacing.as_deref(),
+    };
+    let swap = Swap::plan(addons_dir, inner, &tocs, &req)?;
+    swap.commit(addons_dir, &Incoming::InPlace(dir), &req)
+}
+
+/// Where the new folders of a [`Swap`] come from.
+enum Incoming {
+    /// A fresh folder under `.tocsin-staging`: Tocsin's, removed afterwards.
+    Staged(PathBuf),
+    /// A wrapper folder in `AddOns` ([`move_up`]): the user's, never deleted
+    /// with what is left in it.
+    InPlace(PathBuf),
+}
+
+impl Incoming {
+    fn dir(&self) -> &Path {
+        match self {
+            Self::Staged(d) | Self::InPlace(d) => d,
+        }
+    }
+
+    /// Done with it, whether the swap worked or not.
+    fn finish(&self) {
+        match self {
+            Self::Staged(d) => {
+                let _ = std::fs::remove_dir_all(d);
+            }
+            // Only goes when empty: a README and the like stay where they were.
+            Self::InPlace(d) => {
+                let _ = std::fs::remove_dir(d);
+            }
+        }
+    }
+}
+
+/// An install worked out before anything is written: which record it
+/// updates and what leaves `AddOns`.
+struct Swap {
+    log: Log,
+    key: String,
+    old: Option<Record>,
+    new_folders: Vec<String>,
+    to_backup: Vec<String>,
+    parked: Vec<String>,
+}
+
+impl Swap {
+    fn plan(
+        addons_dir: &Path,
+        new_folders: Vec<String>,
+        tocs: &BTreeMap<String, Toc>,
+        req: &Request<'_>,
+    ) -> Result<Self, InstallError> {
+        // `archive` already refuses these; the swap joins them to `AddOns`,
+        // so it checks again rather than rely on another module.
+        if let Some(bad) = new_folders.iter().find(|f| !is_plain_name(f)) {
+            return Err(ArchiveError::UnsafeEntry(bad.clone()).into());
+        }
+        let disabled_root = own_dir(addons_dir, DISABLED_DIR)?;
+        let log = Log::load(addons_dir)?;
+        // The record this zip updates: the one already covering any of its
+        // folders (updating WeakAuras from the WeakAurasOptions row must not open
+        // a second record), else a new one under the requested key when the zip
+        // ships that folder, else under the zip's main folder.
+        // A requested key that already names a *different* release (the family
+        // head, when the GUI once passed it for a member's update) is not reused:
+        // its folders would be evicted as stale.
+        let key: String = match new_folders.iter().find_map(|f| log.key_covering(f)) {
+            Some(k) => k.to_string(),
+            None if new_folders.iter().any(|f| f == req.key)
+                && log
+                    .installs
+                    .get(req.key)
+                    .map_or(true, |r| r.current.folders.is_empty()) =>
+            {
+                req.key.to_string()
+            }
+            None => main_folder(tocs, req.key).unwrap_or_else(|| req.key.to_string()),
+        };
+        let old = log.installs.get(&key).cloned();
+        // Installing the very zip that is on disk would only throw away the
+        // previous generation. Seen with Routine: the GitHub build of v12.0.378
+        // says `## Version: v12.0.372` in its .toc, so without this guard every
+        // "Update" replaced the backup with a copy of the current folder.
+        if let Some(r) = &old {
+            let same = r.current.version == req.version && !r.sha256.is_empty() && r.sha256 == req.sha256;
+            let in_place = !r.current.folders.is_empty()
+                && r.current.folders.iter().all(|f| addons_dir.join(f).is_dir());
+            if same && in_place {
+                return Err(InstallError::AlreadyInstalled(req.version.to_string()));
+            }
+        }
+
+        // Everything that must leave AddOns: folders in the zip that exist, plus
+        // folders of the previous generation the new zip no longer ships. Found
+        // (and refused if one is a link) before anything is written.
+        let mut to_backup = present(addons_dir, &new_folders)?;
+        if let Some(r) = &old {
+            for f in present(addons_dir, &r.current.folders)? {
+                if !to_backup.contains(&f) {
+                    to_backup.push(f);
+                }
+            }
+        }
+        // Updating a disabled addon re-enables it: the parked copy comes back
+        // first so it is backed up like any other previous version.
+        let parked: Vec<String> = present(&disabled_root, &new_folders)?
+            .into_iter()
+            .filter(|f| !to_backup.contains(f))
+            .collect();
+        Ok(Self {
+            log,
+            key,
+            old,
+            new_folders,
+            to_backup,
+            parked,
+        })
+    }
+
+    /// Move the old folders to the backup and the new ones in from
+    /// `incoming`, undoing every rename on failure, then save the log.
+    fn commit(
+        self,
+        addons_dir: &Path,
+        incoming: &Incoming,
+        req: &Request<'_>,
+    ) -> Result<Outcome, InstallError> {
+        let Self {
+            mut log,
+            key,
+            old,
+            new_folders,
+            mut to_backup,
+            parked,
+        } = self;
+        let staging = incoming.dir();
+        if !parked.is_empty() {
+            match enable(addons_dir, &parked) {
+                Ok(back) => to_backup.extend(back),
+                Err(e) => {
+                    incoming.finish();
+                    return Err(e);
+                }
+            }
+        }
+
+        let old_version = old
+            .as_ref()
+            .map(|r| r.current.version.clone())
+            .or_else(|| req.replacing_version.map(str::to_string))
+            .unwrap_or_else(|| UNKNOWN_VERSION.into());
+        let backup_rel = format!("{BACKUP_DIR}/{}@{}", safe_name(&key), safe_name(&old_version));
+        let backup = addons_dir.join(&backup_rel);
+        if !to_backup.is_empty() {
+            if let Err(e) = reset_dir(&backup) {
+                incoming.finish();
                 return Err(e);
             }
         }
-    }
 
-    let old_version = old
-        .as_ref()
-        .map(|r| r.current.version.clone())
-        .or_else(|| req.replacing_version.map(str::to_string))
-        .unwrap_or_else(|| UNKNOWN_VERSION.into());
-    let backup_rel = format!("{BACKUP_DIR}/{}@{}", safe_name(&key), safe_name(&old_version));
-    let backup = addons_dir.join(&backup_rel);
-    if !to_backup.is_empty() {
-        if let Err(e) = reset_dir(&backup) {
-            let _ = std::fs::remove_dir_all(&staging);
-            return Err(e);
+        // Swap, with undo on failure.
+        let mut moved_out: Vec<String> = Vec::new();
+        let mut moved_in: Vec<String> = Vec::new();
+        let result = (|| -> Result<(), std::io::Error> {
+            for f in &to_backup {
+                std::fs::rename(addons_dir.join(f), backup.join(f))?;
+                moved_out.push(f.clone());
+            }
+            for f in &new_folders {
+                std::fs::rename(staging.join(f), addons_dir.join(f))?;
+                moved_in.push(f.clone());
+            }
+            Ok(())
+        })();
+        if let Err(e) = result {
+            for f in moved_in.iter().rev() {
+                let _ = std::fs::rename(addons_dir.join(f), staging.join(f));
+            }
+            for f in moved_out.iter().rev() {
+                let _ = std::fs::rename(backup.join(f), addons_dir.join(f));
+            }
+            incoming.finish();
+            // Only goes when empty, i.e. when everything really moved back.
+            let _ = std::fs::remove_dir(&backup);
+            return Err(InstallError::Reverted(e.to_string()));
         }
-    }
+        incoming.finish();
 
-    // Swap, with undo on failure.
-    let mut moved_out: Vec<String> = Vec::new();
-    let mut moved_in: Vec<String> = Vec::new();
-    let result = (|| -> Result<(), std::io::Error> {
-        for f in &to_backup {
-            std::fs::rename(addons_dir.join(f), backup.join(f))?;
-            moved_out.push(f.clone());
-        }
-        for f in &new_folders {
-            std::fs::rename(staging.join(f), addons_dir.join(f))?;
-            moved_in.push(f.clone());
-        }
-        Ok(())
-    })();
-    if let Err(e) = result {
-        for f in moved_in.iter().rev() {
-            let _ = std::fs::rename(addons_dir.join(f), staging.join(f));
-        }
-        for f in moved_out.iter().rev() {
-            let _ = std::fs::rename(backup.join(f), addons_dir.join(f));
-        }
-        let _ = std::fs::remove_dir_all(&staging);
-        // Only goes when empty, i.e. when everything really moved back.
-        let _ = std::fs::remove_dir(&backup);
-        return Err(InstallError::Reverted(e.to_string()));
-    }
-    let _ = std::fs::remove_dir_all(&staging);
-
-    // Drop the generation before the one we just backed up: one is kept.
-    if let Some(prev) = old.as_ref().and_then(|r| r.previous.as_ref()) {
-        if let Some(b) = &prev.backup {
-            if b != &backup_rel {
-                let _ = std::fs::remove_dir_all(addons_dir.join(b));
+        // Drop the generation before the one we just backed up: one is kept.
+        if let Some(prev) = old.as_ref().and_then(|r| r.previous.as_ref()) {
+            if let Some(b) = &prev.backup {
+                if b != &backup_rel {
+                    let _ = std::fs::remove_dir_all(addons_dir.join(b));
+                }
             }
         }
-    }
 
-    let previous = (!to_backup.is_empty()).then(|| Generation {
-        version: old_version,
-        folders: to_backup.clone(),
-        backup: Some(backup_rel),
-    });
-    log.installs.insert(
-        key,
-        Record {
-            provider: req.provider.to_string(),
-            current: Generation {
-                version: req.version.to_string(),
-                folders: new_folders.clone(),
-                backup: None,
+        let previous = (!to_backup.is_empty()).then(|| Generation {
+            version: old_version,
+            folders: to_backup.clone(),
+            backup: Some(backup_rel),
+        });
+        log.installs.insert(
+            key,
+            Record {
+                provider: req.provider.to_string(),
+                current: Generation {
+                    version: req.version.to_string(),
+                    folders: new_folders.clone(),
+                    backup: None,
+                },
+                previous,
+                installed_at: now(),
+                sha256: req.sha256.to_string(),
+                source: req.source.cloned().or_else(|| old.and_then(|r| r.source)),
             },
-            previous,
-            installed_at: now(),
-            sha256: req.sha256.to_string(),
-            source: req.source.cloned().or_else(|| old.and_then(|r| r.source)),
-        },
-    );
-    log.save(addons_dir)?;
-    Ok(Outcome {
-        installed: new_folders,
-        replaced: to_backup,
-    })
+        );
+        log.save(addons_dir)?;
+        Ok(Outcome {
+            installed: new_folders,
+            replaced: to_backup,
+        })
+    }
 }
 
 /// Swap the current generation covering `folder` with its backup.
@@ -1688,5 +1824,97 @@ mod toggle_tests {
         );
         let got: Vec<String> = rollbackable_in(&log).into_iter().collect();
         assert_eq!(got, ["MidnightRoutine", "RoutineData"]);
+    }
+}
+
+#[cfg(test)]
+mod move_up_tests {
+    use super::*;
+    use crate::client::GameClient;
+
+    const WRAPPER: &str = "Details-Details.20261104.15400.172-1-gcec582c";
+
+    fn retail() -> GameClient {
+        GameClient::flavor_only(Flavor::Retail)
+    }
+
+    fn addon(root: &Path, folder: &str, toc: &str) {
+        std::fs::create_dir_all(root.join(folder)).unwrap();
+        std::fs::write(root.join(folder).join(format!("{folder}.toc")), toc).unwrap();
+    }
+
+    /// `AddOns/<WRAPPER>/{Details, Details_Compare2}`, as Windows' "Extract
+    /// all" leaves Details' zip when the whole folder is copied in.
+    fn wrapped_details() -> (tempfile::TempDir, PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let addons = tmp.path().join("AddOns");
+        let w = addons.join(WRAPPER);
+        addon(
+            &w,
+            "Details",
+            "## Version: #Details.20261104.15400.172-1-gcec582c\n",
+        );
+        addon(&w, "Details_Compare2", "## RequiredDeps: Details\n");
+        (tmp, addons)
+    }
+
+    #[test]
+    fn moves_the_addons_up_and_records_them() {
+        let (_tmp, addons) = wrapped_details();
+        std::fs::write(addons.join(WRAPPER).join("README.md"), "docs").unwrap();
+        let o = move_up(&addons, WRAPPER, &retail()).unwrap();
+        assert_eq!(o.installed, ["Details", "Details_Compare2"]);
+        assert!(o.replaced.is_empty());
+        assert!(addons.join("Details/Details.toc").is_file());
+        assert!(addons.join("Details_Compare2/Details_Compare2.toc").is_file());
+        // The user's README stays where it was, and so does its folder.
+        assert!(addons.join(WRAPPER).join("README.md").is_file());
+        let log = Log::load(&addons).unwrap();
+        let r = &log.installs["Details"];
+        assert_eq!(r.current.version, "#Details.20261104.15400.172-1-gcec582c");
+        assert_eq!(r.provider, "local");
+        assert!(r.previous.is_none());
+    }
+
+    #[test]
+    fn an_emptied_wrapper_goes() {
+        let (_tmp, addons) = wrapped_details();
+        move_up(&addons, WRAPPER, &retail()).unwrap();
+        assert!(!addons.join(WRAPPER).exists());
+    }
+
+    #[test]
+    fn folders_already_there_go_to_the_backup_and_roll_back() {
+        let (_tmp, addons) = wrapped_details();
+        addon(&addons, "Details", "## Version: #Details.20261001.15000.171\n");
+        let o = move_up(&addons, WRAPPER, &retail()).unwrap();
+        assert_eq!(o.replaced, ["Details"]);
+        assert!(addons
+            .join(".tocsin-backup/Details@_Details.20261001.15000.171/Details")
+            .is_dir());
+        assert!(std::fs::read_to_string(addons.join("Details/Details.toc"))
+            .unwrap()
+            .contains("20261104"));
+        rollback(&addons, "Details").unwrap();
+        assert!(std::fs::read_to_string(addons.join("Details/Details.toc"))
+            .unwrap()
+            .contains("20261001"));
+        assert!(!addons.join("Details_Compare2").exists());
+    }
+
+    #[test]
+    fn refuses_what_is_not_a_wrapper_and_moves_nothing() {
+        let (_tmp, addons) = wrapped_details();
+        // A repository: the packager's recipe beside the folders.
+        std::fs::write(addons.join(WRAPPER).join(".pkgmeta"), "").unwrap();
+        assert!(matches!(
+            move_up(&addons, WRAPPER, &retail()),
+            Err(InstallError::NotWrapper(_))
+        ));
+        assert!(addons.join(WRAPPER).join("Details").is_dir());
+        assert!(!addons.join("Details").exists());
+        for bad in ["..", "missing", "", "a/b"] {
+            assert!(move_up(&addons, bad, &retail()).is_err(), "{bad:?}");
+        }
     }
 }

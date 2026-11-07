@@ -166,6 +166,11 @@ that way:
   folders, and each is accepted only if it has a `.flavor.info` file, a
   WoW executable (`Wow.exe`, `WowClassic.exe`, …) or a `WTF` folder; they
   are only checked for existence, and a link does not count.
+- A folder in `AddOns` that is not an addon (no `.toc` of its own) is
+  listed one level deep, and so are the folders inside it (at most 64),
+  to tell whether it wraps addon folders one level too deep (a zip unpacked
+  with Windows' "Extract all"). Only directory listings are read, never a
+  file, never through a link; nothing deeper is looked at.
 - The game executable of each added folder is opened once per launch (and
   when the folder is added) for its icon, shown in the sidebar; it is never
   run. It is about 80 MB and is not read whole: only its PE headers, its
@@ -184,6 +189,13 @@ that way:
   dot-folders) and its own cache directory. Never `WTF`, never anything else.
   If one of the dot-folders, or an addon folder about to be moved, is a link,
   Tocsin refuses to touch it rather than write wherever it points.
+- *Move up* on a folder that wraps addon folders renames each of them from
+  `AddOns\<Wrapper>\<Folder>` to `AddOns\<Folder>`, like an install from that
+  folder: the wrapper is looked at again first and must still hold only
+  addon folders (no link among them), folders of the same name already in
+  `AddOns` go to the backup after the user confirms, and every rename is
+  undone if one fails. The wrapper itself is removed only when empty; what
+  else is in it (a README) stays. Nothing is copied or deleted.
 - Settings and cache from earlier builds are moved over once at start-up:
   one rename per folder, only when the new folder does not exist yet, refused
   when the old folder or its parent is a link; nothing is copied or overwritten.
@@ -213,7 +225,9 @@ that way:
 - Downloads come only from the providers' own hosts; a zip is inspected
   before extraction (no `..`, absolute paths, symlinks, Windows device names
   such as `CON` or `aux.lua`, names ending in a dot or space, dot-folders at
-  the root; folders only at the root) and verified against the provider's
+  the root; folders only at the root, or one wrapper folder holding only
+  addon folders, which is left out on extraction; a GitHub "Source code"
+  zip is refused) and verified against the provider's
   digest when there is one. Zip-bomb limits count the bytes actually
   unpacked, not the sizes the zip claims. Folders are swapped with renames,
   undone if any step fails.

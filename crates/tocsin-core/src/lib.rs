@@ -28,6 +28,7 @@ pub mod sources;
 pub mod toc;
 pub mod updater;
 pub mod version;
+pub mod wrapper;
 
 pub use addon::{scan_addons_dir, InstalledAddon};
 pub use checker::{check_all, UpdateReport, UpdateStatus};
@@ -84,9 +85,66 @@ pub struct Library {
     pub addons: Vec<InstalledAddon>,
     /// The game client this folder belongs to.
     pub client: client::GameClient,
-    /// Folders in `AddOns` that are not addons (no usable `.toc`). Many of
-    /// them and no addons means the folder holds something else.
+    /// Folders in `AddOns` that are not addons (no usable `.toc`) nor
+    /// [`Wrapped`]. Many of them and no addons means the folder holds
+    /// something else.
     pub skipped: usize,
+    /// Folders in `AddOns` holding addon folders one level too deep.
+    pub wrapped: Vec<Wrapped>,
+}
+
+/// Members that only ride along with their head take its version and its
+/// sources: no `## Version`, no source in their own `.toc`, and the head's
+/// author or none. Details' plugins (Compare2, Storage, …) ship in Details'
+/// zip with neither; on their own they showed "—", Version unknown, and the
+/// GitHub link of their docs, whose last release dates from 2021 while the
+/// head was checked on CurseForge. Their version is the zip's, which is the
+/// head's. A member with a version or a source of its own, one Tocsin
+/// installed (its record says), or one the user configured keeps its own.
+fn follow_heads(addons: &mut [InstalledAddon], manifest: &Manifest, pinned: &[String]) {
+    for fam in family::group(addons) {
+        let head = &addons[fam.head];
+        let (version, sources) = (head.installed.clone(), head.sources.clone());
+        let author = head.toc.author().map(str::to_ascii_lowercase);
+        for i in fam.members {
+            let a = &mut addons[i];
+            let configured = manifest.overrides.contains_key(&a.folder) || pinned.contains(&a.folder);
+            let author_ok = a.toc.author().is_none() || a.toc.author().map(str::to_ascii_lowercase) == author;
+            let rides_along = a.installed.is_none() && SourceRef::candidates_from_toc(&a.toc).is_empty();
+            if rides_along && author_ok && !configured {
+                a.installed = version.clone();
+                a.sources = sources.clone();
+            }
+        }
+    }
+}
+
+/// A folder in `AddOns` with no `.toc` of its own that holds only addon
+/// folders (see [`wrapper`]): the game loads none of them. Windows' "Extract
+/// all" makes one from any addon zip.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Wrapped {
+    /// The wrapper folder's name.
+    pub folder: String,
+    /// The addon folders inside it, sorted.
+    pub addons: Vec<String>,
+    /// Those of `addons` already in `AddOns` or disabled: moving the others
+    /// up ([`install::move_up`]) puts these in the backup.
+    pub replaces: Vec<String>,
+}
+
+impl Wrapped {
+    /// `dir`, when it is a wrapper.
+    fn find(addons_dir: &Path, dir: &Path) -> Option<Self> {
+        let wrapper::Layout::Wrapper(addons) = wrapper::on_disk(dir) else {
+            return None;
+        };
+        Some(Self {
+            folder: dir.file_name()?.to_str()?.to_string(),
+            replaces: updater::conflicts(addons_dir, &addons),
+            addons,
+        })
+    }
 }
 
 impl Library {
@@ -105,6 +163,12 @@ impl Library {
     pub fn load_with_log(addons_dir: &Path, manifest: &Manifest, log: &install::Log) -> anyhow::Result<Self> {
         let client = client::GameClient::detect(addons_dir);
         let (mut addons, skipped) = addon::scan_counting_skipped(addons_dir, &client)?;
+        // Only folders that are not addons are looked into, one level down.
+        let wrapped: Vec<Wrapped> = skipped
+            .iter()
+            .filter_map(|d| Wrapped::find(addons_dir, d))
+            .collect();
+        let skipped = skipped.len() - wrapped.len();
         // Disabled addons are parked in a dot-folder; list them too, flagged.
         // Only when it is a real folder: a link there would have the scan
         // read whatever it points to.
@@ -189,11 +253,13 @@ impl Library {
                 }
             }
         }
+        follow_heads(&mut addons, manifest, &pinned);
         Ok(Self {
             addons_dir: addons_dir.to_path_buf(),
             addons,
             client,
             skipped,
+            wrapped,
         })
     }
 }
@@ -219,6 +285,76 @@ mod tests {
         let lib = Library::load(tmp.path(), &Manifest::default()).unwrap();
         assert_eq!(lib.addons.len(), 1);
         assert_eq!(lib.skipped, 1);
+        assert!(lib.wrapped.is_empty());
+    }
+
+    #[test]
+    fn plugins_without_version_or_source_follow_their_head() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_addon(
+            tmp.path(),
+            "Details",
+            "## Version: #Details.20261104.15400.172-1-gcec582c\n## X-Curse-Project-ID: 61284\n",
+        );
+        // The plugin's docs link Details' GitHub repository.
+        write_addon(tmp.path(), "Details_Compare2", "## RequiredDeps: Details\n");
+        std::fs::write(
+            tmp.path().join("Details_Compare2/README.md"),
+            "https://github.com/Tercioo/Details-Damage-Meter\n",
+        )
+        .unwrap();
+        // A plugin with a version of its own keeps it, and its own source.
+        write_addon(
+            tmp.path(),
+            "Details_Own",
+            "## RequiredDeps: Details\n## Version: 3\n## X-WoWI-ID: 42\n",
+        );
+        // Another author's plugin is not part of the release.
+        write_addon(
+            tmp.path(),
+            "Details_Other",
+            "## RequiredDeps: Details\n## Author: Someone\n",
+        );
+        let lib = Library::load(tmp.path(), &Manifest::default()).unwrap();
+        let get = |f: &str| lib.addons.iter().find(|a| a.folder == f).unwrap();
+        let (head, plugin) = (get("Details"), get("Details_Compare2"));
+        assert_eq!(
+            plugin.installed.as_ref().map(Version::as_str),
+            head.installed.as_ref().map(Version::as_str)
+        );
+        assert_eq!(plugin.sources, head.sources);
+        assert_eq!(plugin.source(), Some(&SourceRef::CurseForge { id: 61284 }));
+        assert_eq!(
+            get("Details_Own").installed.as_ref().map(Version::as_str),
+            Some("3")
+        );
+        assert_eq!(
+            get("Details_Own").source(),
+            Some(&SourceRef::WowInterface { id: 42 })
+        );
+        assert!(get("Details_Other").installed.is_none());
+    }
+
+    #[test]
+    fn finds_addons_one_level_too_deep() {
+        // Details' zip extracted with Windows' "Extract all", then copied in
+        // whole, beside an older Details installed the right way.
+        let tmp = tempfile::tempdir().unwrap();
+        let w = tmp.path().join("Details-Details.20261104.15400.172-1-gcec582c");
+        write_addon(&w, "Details", "## Title: Details\n");
+        write_addon(&w, "Details_Compare2", "## RequiredDeps: Details\n");
+        write_addon(tmp.path(), "Details", "## Title: Details\n");
+        let lib = Library::load(tmp.path(), &Manifest::default()).unwrap();
+        assert_eq!(lib.addons.len(), 1);
+        assert_eq!(lib.skipped, 0, "a wrapper is not a stray folder");
+        assert_eq!(
+            lib.wrapped,
+            [Wrapped {
+                folder: "Details-Details.20261104.15400.172-1-gcec582c".into(),
+                addons: vec!["Details".into(), "Details_Compare2".into()],
+                replaces: vec!["Details".into()],
+            }]
+        );
     }
 
     #[test]

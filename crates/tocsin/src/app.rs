@@ -232,6 +232,11 @@ pub struct App {
     /// Family (head folder, or removed key) the user asked to delete for
     /// good; the confirm banner shows until they answer.
     confirm_delete: Option<String>,
+    /// Folders in `AddOns` holding addons one level too deep.
+    wrapped: Vec<tocsin_core::Wrapped>,
+    /// Wrapper whose move would replace folders already there; the confirm
+    /// banner shows until the user answers.
+    confirm_move: Option<String>,
     /// Game folder the user asked to stop managing; the confirm banner shows
     /// until they answer. A path, not an index: the list may change meanwhile.
     confirm_remove_folder: Option<PathBuf>,
@@ -322,6 +327,15 @@ pub enum Message {
     CancelDelete,
     /// A delete finished: (name, result).
     Deleted(String, Result<(), String>),
+    /// Move the addon folders this wrapper holds up into `AddOns`; asks
+    /// first when that replaces folders already there.
+    MoveUp(String),
+    /// The user confirms the pending move.
+    ConfirmMoveUp,
+    /// The user leaves the wrapper as it is.
+    CancelMoveUp,
+    /// A move finished: (wrapper, folders moved, or the error).
+    MovedUp(String, Result<Vec<String>, String>),
     /// An update or rollback finished: (folder, result).
     Installed(String, Result<Vec<String>, String>),
     // discover
@@ -418,6 +432,8 @@ impl App {
             rollbackable: BTreeSet::new(),
             removed: Vec::new(),
             confirm_delete: None,
+            wrapped: Vec::new(),
+            confirm_move: None,
             confirm_remove_folder: None,
             installing: None,
             statuses: BTreeMap::new(),
@@ -541,6 +557,8 @@ impl App {
                 let addons = library.addons;
                 self.lib_gen += 1;
                 self.removed = removed;
+                self.confirm_move = None;
+                self.wrapped = library.wrapped;
                 self.busy = false;
                 self.client = library.client.describe();
                 self.build = library
@@ -561,6 +579,17 @@ impl App {
                 let skipped = library.skipped;
                 self.notice = Some(match (&log_error, missing) {
                     (Some(e), _) => (true, format!("Install history unreadable: {e}")),
+                    // An addon zip extracted by hand into a folder of its own.
+                    (None, _) if !self.wrapped.is_empty() => (
+                        true,
+                        match self.wrapped.as_slice() {
+                            [w] => format!("{} holds addons one level too deep: the game loads none of them.", w.folder),
+                            many => format!(
+                                "{} folders hold addons one level too deep: the game loads none of them.",
+                                many.len()
+                            ),
+                        },
+                    ),
                     // Folders but no addons: an AddOns folder full of something else.
                     (None, _) if self.addons.is_empty() && skipped > 0 => (
                         true,
@@ -812,6 +841,46 @@ impl App {
                     }
                     Err(e) => {
                         self.notice = Some((true, format!("{key}: {e}")));
+                        Task::none()
+                    }
+                }
+            }
+            Message::MoveUp(wrapper) => {
+                let replaces = self
+                    .wrapped
+                    .iter()
+                    .any(|w| w.folder == wrapper && !w.replaces.is_empty());
+                if replaces {
+                    self.confirm_move = Some(wrapper);
+                    return Task::none();
+                }
+                self.move_up(wrapper)
+            }
+            Message::CancelMoveUp => {
+                self.confirm_move = None;
+                Task::none()
+            }
+            Message::ConfirmMoveUp => match self.confirm_move.take() {
+                Some(wrapper) if !self.busy => self.move_up(wrapper),
+                other => {
+                    self.confirm_move = other;
+                    Task::none()
+                }
+            },
+            Message::MovedUp(wrapper, result) => {
+                self.busy = false;
+                self.installing = None;
+                match result {
+                    Ok(folders) => {
+                        self.notice = Some((
+                            false,
+                            format!("Moved {} folders out of {wrapper}. Rescanning…", folders.len()),
+                        ));
+                        self.recheck = Some(folders);
+                        self.update(Message::Scan)
+                    }
+                    Err(e) => {
+                        self.notice = Some((true, format!("{wrapper}: {e}")));
                         Task::none()
                     }
                 }
@@ -1483,12 +1552,40 @@ impl App {
             }
         }
         c.attention += self.missing.len()
+            + self.wrapped.len()
             + self
                 .addons
                 .iter()
                 .filter(|a| a.issues.iter().any(|i| i.is_blocking()))
                 .count();
         self.counts = c;
+    }
+
+    /// Move the addon folders `wrapper` holds up into `AddOns`, off the UI
+    /// thread. The core looks at the folder again before moving anything.
+    fn move_up(&mut self, wrapper: String) -> Task<Message> {
+        let Some(dir) = self.active_dir().cloned() else {
+            return Task::none();
+        };
+        if self.busy {
+            return Task::none();
+        }
+        self.busy = true;
+        self.installing = Some(wrapper.clone());
+        self.notice = Some((false, format!("Moving the addons out of {wrapper}…")));
+        let done = wrapper.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    let client = tocsin_core::client::GameClient::detect(&dir);
+                    tocsin_core::install::move_up(&dir, &wrapper, &client).map(|o| o.installed)
+                })
+                .await
+                .unwrap_or_else(|e| Err(tocsin_core::install::InstallError::Log(e.to_string())))
+                .map_err(|e| e.to_string())
+            },
+            move |r| Message::MovedUp(done.clone(), r),
+        )
     }
 
     /// Forget the shown library (another installation is about to be shown).
@@ -1500,6 +1597,8 @@ impl App {
         self.statuses.clear();
         self.library_icons.clear();
         self.confirm_delete = None;
+        self.wrapped.clear();
+        self.confirm_move = None;
         for batch in std::mem::take(&mut self.library_batches) {
             cancel_icons(&mut self.icons, batch);
         }

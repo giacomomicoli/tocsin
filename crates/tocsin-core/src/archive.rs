@@ -1,10 +1,12 @@
 //! Inspect and extract addon zips.
 //!
-//! A WoW addon zip has only folders at its root, each with its own `.toc`.
-//! Everything else — a wrapper folder from a GitHub "Source code" zip, loose
-//! files, symlinks, `..`, absolute paths, Windows device names, absurd sizes —
-//! is refused before a byte is written. Extraction goes to a staging directory
-//! the caller owns; this module never touches `AddOns` itself.
+//! A WoW addon zip has only folders at its root, each with its own `.toc`,
+//! or one wrapper folder holding only such folders (see [`crate::wrapper`]),
+//! which extraction then leaves out. Everything else — a GitHub "Source
+//! code" zip, loose files, symlinks, `..`, absolute paths, Windows device
+//! names, absurd sizes — is refused before a byte is written. Extraction goes
+//! to a staging directory the caller owns; this module never touches `AddOns`
+//! itself.
 //!
 //! Sizes in the zip's directory are written by whoever made the zip, so they
 //! only serve as an early refusal in [`inspect`]; [`extract`] counts the
@@ -18,6 +20,7 @@ use zip::ZipArchive;
 
 use crate::addon::{pick_toc_name, Flavor};
 use crate::toc::Toc;
+use crate::wrapper::{self, Inner, Layout};
 
 /// Caps against zip bombs. ElvUI is ~3 000 files / 60 MiB unpacked.
 const MAX_ENTRIES: usize = 20_000;
@@ -63,6 +66,9 @@ pub struct Manifest {
     pub unpacked: u64,
     /// Number of entries.
     pub entries: usize,
+    /// The wrapper folder around the addon folders, when the zip has one:
+    /// [`extract`] leaves it out.
+    pub wrapper: Option<String>,
     /// Every `.toc` read, per folder: file name and content.
     toc_files: BTreeMap<String, Vec<(String, String)>>,
 }
@@ -81,42 +87,61 @@ impl Manifest {
     }
 }
 
-/// Read the zip's directory and validate it. No data is decompressed.
+/// One entry of the zip's directory, validated.
+struct Listed {
+    index: usize,
+    rel: PathBuf,
+    is_dir: bool,
+    size: u64,
+}
+
+impl Listed {
+    /// A file directly at the root (`README.md`, `.pkgmeta`).
+    fn is_root_file(&self) -> bool {
+        !self.is_dir && self.rel.components().count() == 1
+    }
+
+    /// The first path component, when it is a name.
+    fn top(&self) -> Option<String> {
+        match self.rel.components().next() {
+            Some(Component::Normal(t)) => Some(t.to_string_lossy().into_owned()),
+            _ => None,
+        }
+    }
+}
+
+/// Read the zip's directory and validate it. No data is decompressed but the
+/// `.toc` files.
 pub fn inspect(zip_path: &Path) -> Result<Manifest, ArchiveError> {
     let file = std::fs::File::open(zip_path)?;
     let mut archive = ZipArchive::new(file).map_err(|_| ArchiveError::Invalid)?;
     if archive.len() > MAX_ENTRIES {
         return Err(ArchiveError::TooLarge);
     }
+    let (listed, unpacked) = list(&mut archive)?;
+    for e in listed.iter().filter(|e| e.is_root_file()) {
+        let top = e.top().unwrap_or_default();
+        // `.pkgmeta`, README at root: tolerate dotfiles/docs, refuse the rest.
+        if !top.starts_with('.') && !wrapper::is_doc(&top) {
+            return Err(ArchiveError::NotAnAddon(format!("loose file {top} at the root")));
+        }
+    }
+    let wrapped = find_wrapper(&listed)?;
 
-    let mut unpacked: u64 = 0;
     let mut tops: BTreeMap<String, bool> = BTreeMap::new(); // name → has <Name>*.toc
     let mut toc_files: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     let mut toc_total: u64 = 0;
-
-    for i in 0..archive.len() {
-        let entry = archive.by_index_raw(i).map_err(|_| ArchiveError::Invalid)?;
-        let name = entry_name(&entry)?;
-        let rel = safe_relative(&name)?;
-        if entry.is_symlink() {
-            return Err(ArchiveError::UnsafeEntry(name));
-        }
-        unpacked = unpacked.saturating_add(entry.size());
-        if entry.size() > MAX_FILE || unpacked > MAX_UNPACKED {
-            return Err(ArchiveError::TooLarge);
-        }
+    for e in &listed {
+        let Some(rel) = unwrapped(&e.rel, wrapped.as_deref()) else {
+            continue;
+        };
         let mut comps = rel.components();
         let Some(Component::Normal(top)) = comps.next() else {
             continue; // empty name
         };
         let top = top.to_string_lossy().into_owned();
-        let is_root_file = comps.clone().next().is_none() && !entry.is_dir();
-        if is_root_file {
-            // `.pkgmeta`, README at root: tolerate dotfiles/docs, refuse the rest.
-            if top.starts_with('.') || top.to_ascii_lowercase().ends_with(".md") {
-                continue;
-            }
-            return Err(ArchiveError::NotAnAddon(format!("loose file {top} at the root")));
+        if comps.next().is_none() && !e.is_dir {
+            continue; // a root file, checked above (or by `find_wrapper` inside a wrapper)
         }
         if top.starts_with('.') {
             // The game ignores dot-folders, and Tocsin's own live in AddOns:
@@ -127,43 +152,30 @@ pub fn inspect(zip_path: &Path) -> Result<Manifest, ArchiveError> {
         }
         let has_toc = tops.entry(top.clone()).or_insert(false);
         // `<Top>/<Top>.toc` or `<Top>/<Top>_Mainline.toc`, one level deep.
-        let depth = rel.components().count();
-        if depth == 2 && !entry.is_dir() {
-            let fname = rel.file_name().and_then(|f| f.to_str()).unwrap_or("");
-            if is_toc_for(fname, &top) {
-                *has_toc = true;
-                let kept = toc_files.entry(top.clone()).or_default();
-                let room = kept.len() < MAX_TOCS_PER_FOLDER && toc_total < MAX_TOC_TOTAL;
-                if entry.size() <= MAX_TOC && room {
-                    // Read this one small file now; we need its metadata.
-                    let fname = fname.to_string();
-                    drop(entry);
-                    let f = archive.by_index(i).map_err(|_| ArchiveError::Invalid)?;
-                    let mut raw = Vec::new();
-                    // The declared size is the zip author's word: a `.toc`
-                    // listed as 1 KiB may inflate to gigabytes.
-                    copy_capped(f, &mut raw, MAX_TOC)?;
-                    toc_total = toc_total.saturating_add(raw.len() as u64);
-                    kept.push((fname, String::from_utf8_lossy(&raw).into_owned()));
-                }
-            }
+        if rel.components().count() != 2 || e.is_dir {
+            continue;
+        }
+        let fname = rel.file_name().and_then(|f| f.to_str()).unwrap_or("");
+        if !is_toc_for(fname, &top) {
+            continue;
+        }
+        *has_toc = true;
+        let kept = toc_files.entry(top.clone()).or_default();
+        let room = kept.len() < MAX_TOCS_PER_FOLDER && toc_total < MAX_TOC_TOTAL;
+        if e.size <= MAX_TOC && room {
+            // Read this one small file now; we need its metadata.
+            let f = archive.by_index(e.index).map_err(|_| ArchiveError::Invalid)?;
+            let mut raw = Vec::new();
+            // The declared size is the zip author's word: a `.toc`
+            // listed as 1 KiB may inflate to gigabytes.
+            copy_capped(f, &mut raw, MAX_TOC)?;
+            toc_total = toc_total.saturating_add(raw.len() as u64);
+            kept.push((fname.to_string(), String::from_utf8_lossy(&raw).into_owned()));
         }
     }
 
     if tops.is_empty() {
         return Err(ArchiveError::NotAnAddon("empty zip".into()));
-    }
-    // A single folder with no .toc of its own but addon folders inside:
-    // GitHub's "Source code" layout.
-    if tops.len() == 1 {
-        let (only, has_toc) = tops
-            .iter()
-            .next()
-            .map(|(k, v)| (k.clone(), *v))
-            .unwrap_or_default();
-        if !has_toc && looks_like_wrapper(&mut archive, &only) {
-            return Err(ArchiveError::SourceZip(only));
-        }
     }
     if let Some((top, _)) = tops.iter().find(|(_, has_toc)| !**has_toc) {
         return Err(ArchiveError::NotAnAddon(format!("folder {top} has no .toc")));
@@ -172,6 +184,7 @@ pub fn inspect(zip_path: &Path) -> Result<Manifest, ArchiveError> {
         folders: BTreeMap::new(),
         unpacked,
         entries: archive.len(),
+        wrapper: wrapped,
         toc_files,
     };
     for top in tops.into_keys() {
@@ -181,14 +194,134 @@ pub fn inspect(zip_path: &Path) -> Result<Manifest, ArchiveError> {
     Ok(manifest)
 }
 
+/// Every entry's path, validated, with the sizes the zip declares. Refuses
+/// unsafe names, links and declared sizes over the caps.
+fn list<R: Read + std::io::Seek>(archive: &mut ZipArchive<R>) -> Result<(Vec<Listed>, u64), ArchiveError> {
+    let mut listed = Vec::with_capacity(archive.len());
+    let mut unpacked: u64 = 0;
+    for index in 0..archive.len() {
+        let entry = archive.by_index_raw(index).map_err(|_| ArchiveError::Invalid)?;
+        let name = entry_name(&entry)?;
+        let rel = safe_relative(&name)?;
+        if entry.is_symlink() {
+            return Err(ArchiveError::UnsafeEntry(name));
+        }
+        unpacked = unpacked.saturating_add(entry.size());
+        if entry.size() > MAX_FILE || unpacked > MAX_UNPACKED {
+            return Err(ArchiveError::TooLarge);
+        }
+        listed.push(Listed {
+            index,
+            rel,
+            is_dir: entry.is_dir(),
+            size: entry.size(),
+        });
+    }
+    Ok((listed, unpacked))
+}
+
+/// The wrapper folder to leave out, when the zip's only folder has no `.toc`
+/// of its own and holds addon folders only. A source checkout is refused,
+/// and so is a mix of addon folders and others, saying what is there.
+fn find_wrapper(listed: &[Listed]) -> Result<Option<String>, ArchiveError> {
+    let mut tops = listed
+        .iter()
+        .filter(|e| !e.is_root_file())
+        .filter_map(Listed::top)
+        .filter(|t| !t.starts_with('.'));
+    let Some(only) = tops.next() else {
+        return Ok(None);
+    };
+    if tops.any(|t| t != only) {
+        return Ok(None);
+    }
+    // Paths inside the candidate, as (first name, rest of the path, is a dir).
+    let inside: Vec<(String, Option<PathBuf>, bool)> = listed
+        .iter()
+        .filter_map(|e| {
+            let rest = e.rel.strip_prefix(&only).ok()?;
+            let mut comps = rest.components();
+            let first = comps.next()?.as_os_str().to_string_lossy().into_owned();
+            let deeper = comps.as_path();
+            let deeper = (!deeper.as_os_str().is_empty()).then(|| deeper.to_path_buf());
+            Some((first, deeper, e.is_dir))
+        })
+        .collect();
+    let own_toc = inside
+        .iter()
+        .any(|(first, deeper, is_dir)| deeper.is_none() && !is_dir && is_toc_for(first, &only));
+    if own_toc {
+        return Ok(None); // a plain addon folder
+    }
+    let is_file = |name: &str| {
+        inside
+            .iter()
+            .any(|(first, deeper, is_dir)| first == name && deeper.is_none() && !is_dir)
+    };
+    let has_toc = |name: &str| {
+        inside.iter().any(|(first, deeper, is_dir)| {
+            first == name
+                && !is_dir
+                && deeper.as_deref().is_some_and(|d| {
+                    d.components().count() == 1 && d.to_str().is_some_and(|f| is_toc_for(f, name))
+                })
+        })
+    };
+    let mut names: Vec<&str> = inside.iter().map(|(first, _, _)| first.as_str()).collect();
+    names.sort_unstable();
+    names.dedup();
+    let entries = names.iter().map(|&name| {
+        if is_file(name) {
+            Inner::File(name)
+        } else {
+            Inner::Dir {
+                name,
+                has_toc: has_toc(name),
+            }
+        }
+    });
+    match wrapper::classify(entries) {
+        Layout::Wrapper(_) => Ok(Some(only)),
+        Layout::SourceCheckout => Err(ArchiveError::SourceZip(only)),
+        Layout::Mixed { addons, others } => Err(ArchiveError::NotAnAddon(format!(
+            "{only} holds addon folders ({}) beside folders without a .toc ({})",
+            some_names(&addons),
+            some_names(&others)
+        ))),
+        Layout::NoAddons => Ok(None),
+    }
+}
+
+/// `A, B, C` or `A, B, C and 5 more`: enough to recognise a zip.
+fn some_names(names: &[String]) -> String {
+    const SHOWN: usize = 3;
+    let head = names.iter().take(SHOWN).cloned().collect::<Vec<_>>().join(", ");
+    match names.len().saturating_sub(SHOWN) {
+        0 => head,
+        more => format!("{head} and {more} more"),
+    }
+}
+
+/// `rel` without the wrapper folder, or `None` for an entry outside it (a
+/// root doc) and for the wrapper itself. Without a wrapper, `rel` as is.
+fn unwrapped<'a>(rel: &'a Path, wrapper: Option<&str>) -> Option<&'a Path> {
+    match wrapper {
+        None => Some(rel),
+        Some(w) => rel.strip_prefix(w).ok().filter(|r| !r.as_os_str().is_empty()),
+    }
+}
+
 /// Extract every entry into `staging` (created if missing). Entry paths are
 /// re-validated; the result is `staging/<Top>/…` for each top-level folder.
+/// With `wrapper` (from [`Manifest::wrapper`]), entries come out of it:
+/// `<wrapper>/<Top>/…` lands in `staging/<Top>/…`, and anything outside it
+/// is left in the zip.
 ///
 /// Each file may hold no more than its declared size (and [`MAX_FILE`]), and
 /// all of them together no more than [`MAX_UNPACKED`]: the bytes written are
 /// counted, so a zip lying about its sizes stops at the caps, partial output
 /// included. On error the caller removes `staging`.
-pub fn extract(zip_path: &Path, staging: &Path) -> Result<(), ArchiveError> {
+pub fn extract(zip_path: &Path, staging: &Path, wrapper: Option<&str>) -> Result<(), ArchiveError> {
     let file = std::fs::File::open(zip_path)?;
     let mut archive = ZipArchive::new(file).map_err(|_| ArchiveError::Invalid)?;
     if archive.len() > MAX_ENTRIES {
@@ -199,14 +332,17 @@ pub fn extract(zip_path: &Path, staging: &Path) -> Result<(), ArchiveError> {
     for i in 0..archive.len() {
         let entry = archive.by_index(i).map_err(|_| ArchiveError::Invalid)?;
         let name = entry_name(&entry)?;
-        let rel = safe_relative(&name)?;
-        if rel.as_os_str().is_empty() || under_hidden_top(&rel) {
+        let full = safe_relative(&name)?;
+        let Some(rel) = unwrapped(&full, wrapper) else {
+            continue;
+        };
+        if rel.as_os_str().is_empty() || under_hidden_top(rel) {
             continue;
         }
         if entry.is_symlink() {
             return Err(ArchiveError::UnsafeEntry(name));
         }
-        let target = staging.join(&rel);
+        let target = staging.join(rel);
         if entry.is_dir() {
             std::fs::create_dir_all(&target)?;
             continue;
@@ -330,7 +466,7 @@ fn is_reserved_device(part: &str) -> bool {
 }
 
 /// `WeakAuras.toc`, `WeakAuras_Mainline.toc`, `weakauras-cata.toc` for folder `WeakAuras`.
-fn is_toc_for(file_name: &str, folder: &str) -> bool {
+pub(crate) fn is_toc_for(file_name: &str, folder: &str) -> bool {
     let f = file_name.to_ascii_lowercase();
     let Some(stem) = f.strip_suffix(".toc") else {
         return false;
@@ -340,31 +476,6 @@ fn is_toc_for(file_name: &str, folder: &str) -> bool {
         || stem
             .strip_prefix(&folder)
             .is_some_and(|r| r.starts_with(['_', '-']))
-}
-
-/// Does `wrapper/` contain `wrapper/<X>/<X>*.toc` or `wrapper/<X>.toc`? Then
-/// it is a repository checkout, not a package.
-fn looks_like_wrapper<R: Read + std::io::Seek>(archive: &mut ZipArchive<R>, wrapper: &str) -> bool {
-    let prefix = format!("{wrapper}/");
-    for i in 0..archive.len() {
-        let Ok(entry) = archive.by_index_raw(i) else {
-            continue;
-        };
-        let Ok(name) = entry_name(&entry) else {
-            continue;
-        };
-        let name = name.replace('\\', "/");
-        let Some(rest) = name.strip_prefix(&prefix) else {
-            continue;
-        };
-        let parts: Vec<&str> = rest.split('/').filter(|p| !p.is_empty()).collect();
-        match parts.as_slice() {
-            [f] if f.to_ascii_lowercase().ends_with(".toc") => return true,
-            [d, f] if is_toc_for(f, d) => return true,
-            _ => {}
-        }
-    }
-    false
 }
 
 #[cfg(test)]
@@ -408,7 +519,7 @@ mod tests {
         assert_eq!(m.folders["WeakAuras"].version(), Some("5.22.1"));
 
         let staging = tempfile::tempdir().unwrap();
-        extract(z.path(), staging.path()).unwrap();
+        extract(z.path(), staging.path(), None).unwrap();
         assert!(staging
             .path()
             .join("WeakAurasOptions/Libs/AceGUI/AceGUI.lua")
@@ -425,6 +536,92 @@ mod tests {
         assert!(
             matches!(inspect(z.path()), Err(ArchiveError::SourceZip(w)) if w == "Details-Damage-Meter-main")
         );
+    }
+
+    /// Details' CurseForge zip as Windows' "Extract all" and a re-zip leave
+    /// it: every addon folder one level down, inside a folder named after
+    /// the zip.
+    const WRAPPED_DETAILS: &[(&str, &str)] = &[
+        ("Details-Details.20261104.15400.172-1-gcec582c/", ""),
+        (
+            "Details-Details.20261104.15400.172-1-gcec582c/Details/Details.toc",
+            "## Interface: 120105\n## Version: #Details.20261104.15400.172-1-gcec582c\n",
+        ),
+        (
+            "Details-Details.20261104.15400.172-1-gcec582c/Details/Details_Mists.toc",
+            "## Interface: 50503\n",
+        ),
+        (
+            "Details-Details.20261104.15400.172-1-gcec582c/Details/boot.lua",
+            "x",
+        ),
+        (
+            "Details-Details.20261104.15400.172-1-gcec582c/Details_Compare2/Details_Compare2.toc",
+            "## RequiredDeps: Details\n",
+        ),
+        (
+            "Details-Details.20261104.15400.172-1-gcec582c/Details_DataStorage/Details_DataStorage-Wrath.toc",
+            "## Dependencies: Details\n",
+        ),
+        ("Details-Details.20261104.15400.172-1-gcec582c/README.md", "hi"),
+    ];
+
+    #[test]
+    fn unwraps_a_package_inside_a_wrapper_folder() {
+        let z = make_zip(WRAPPED_DETAILS);
+        let m = inspect(z.path()).unwrap();
+        assert_eq!(
+            m.wrapper.as_deref(),
+            Some("Details-Details.20261104.15400.172-1-gcec582c")
+        );
+        assert_eq!(
+            m.folders.keys().collect::<Vec<_>>(),
+            ["Details", "Details_Compare2", "Details_DataStorage"]
+        );
+        assert_eq!(
+            m.folders["Details"].version(),
+            Some("#Details.20261104.15400.172-1-gcec582c")
+        );
+        let staging = tempfile::tempdir().unwrap();
+        extract(z.path(), staging.path(), m.wrapper.as_deref()).unwrap();
+        assert!(staging.path().join("Details/boot.lua").is_file());
+        assert!(staging
+            .path()
+            .join("Details_Compare2/Details_Compare2.toc")
+            .is_file());
+        // The wrapper itself is gone; its README lands at the staging root,
+        // like a plain zip's, where the install never moves files from.
+        assert!(!staging
+            .path()
+            .join("Details-Details.20261104.15400.172-1-gcec582c")
+            .exists());
+        assert!(staging.path().join("README.md").is_file());
+    }
+
+    #[test]
+    fn refuses_a_wrapper_that_is_a_repository_or_a_mix() {
+        // WeakAuras2-main from GitHub's "Source code" button: addon folders,
+        // but the packager's recipe and Git's files beside them.
+        let z = make_zip(&[
+            ("WeakAuras2-main/.pkgmeta", ""),
+            ("WeakAuras2-main/.github/workflows/build.yml", ""),
+            (
+                "WeakAuras2-main/WeakAuras/WeakAuras.toc",
+                "## Version: @project-version@\n",
+            ),
+            ("WeakAuras2-main/WeakAurasOptions/WeakAurasOptions.toc", ""),
+        ]);
+        assert!(matches!(inspect(z.path()), Err(ArchiveError::SourceZip(w)) if w == "WeakAuras2-main"));
+        // Loose code beside the folders.
+        let z = make_zip(&[("Repo/Foo/Foo.toc", ""), ("Repo/build.lua", "")]);
+        assert!(matches!(inspect(z.path()), Err(ArchiveError::SourceZip(_))));
+        // An addon folder beside a folder that is not one: say what is there.
+        let z = make_zip(&[("Pack/Foo/Foo.toc", ""), ("Pack/Libs/LibStub.lua", "")]);
+        let err = inspect(z.path()).unwrap_err().to_string();
+        assert!(err.contains("Foo") && err.contains("Libs"), "{err}");
+        // Nothing is ever looked for two levels down.
+        let z = make_zip(&[("A/B/Foo/Foo.toc", "")]);
+        assert!(matches!(inspect(z.path()), Err(ArchiveError::NotAnAddon(_))));
     }
 
     #[test]
@@ -451,7 +648,7 @@ mod tests {
         let m = inspect(z.path()).unwrap();
         assert_eq!(m.folders.len(), 1);
         let staging = tempfile::tempdir().unwrap();
-        extract(z.path(), staging.path()).unwrap();
+        extract(z.path(), staging.path(), None).unwrap();
         assert!(staging.path().join("Addon/core.lua").is_file());
     }
 
@@ -502,7 +699,7 @@ mod tests {
         // (our cap or the zip crate's own check, whichever trips first)
         // without writing past the declared size.
         let staging = tempfile::tempdir().unwrap();
-        let r = extract(z.path(), staging.path());
+        let r = extract(z.path(), staging.path(), None);
         assert!(
             matches!(r, Err(ArchiveError::TooLarge | ArchiveError::Invalid)),
             "{r:?}"
@@ -553,7 +750,7 @@ mod tests {
         let m = inspect(z.path()).unwrap();
         assert_eq!(m.folders.keys().collect::<Vec<_>>(), ["Addon"]);
         let staging = tempfile::tempdir().unwrap();
-        extract(z.path(), staging.path()).unwrap();
+        extract(z.path(), staging.path(), None).unwrap();
         assert!(staging.path().join("Addon/Addon.toc").is_file());
         assert!(!staging.path().join(".tocsin-backup").exists());
         assert!(!staging.path().join(".github").exists());

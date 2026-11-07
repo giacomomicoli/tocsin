@@ -52,7 +52,39 @@ impl App {
         if let Some(key) = &self.confirm_delete {
             page = page.push(self.delete_banner(key));
         }
+        if let Some(wrapper) = &self.confirm_move {
+            page = page.push(self.move_banner(wrapper));
+        }
         page.push(self.list()).into()
+    }
+
+    /// "Replace N folders?": moving a wrapper's addons up puts the folders
+    /// of the same name in the backup.
+    fn move_banner<'a>(&'a self, wrapper: &'a str) -> Element<'a, Message> {
+        let replaces = self
+            .wrapped
+            .iter()
+            .find(|w| w.folder == wrapper)
+            .map_or(&[][..], |w| w.replaces.as_slice());
+        let n = replaces.len();
+        let body = format!(
+            "{} already in AddOns {} replaced by the copies in {wrapper}. Rollback brings {} back.",
+            replaces.join(", "),
+            if n == 1 { "is" } else { "are" },
+            if n == 1 { "it" } else { "them" },
+        );
+        let actions = row![
+            widgets::ghost("Cancel", size::META, space::BTN_SM).on_press(Message::CancelMoveUp),
+            widgets::danger("Replace", size::META, space::BTN_SM)
+                .on_press_maybe((!self.busy).then_some(Message::ConfirmMoveUp)),
+        ]
+        .spacing(10);
+        let title = if n == 1 {
+            "Replace 1 folder?".to_string()
+        } else {
+            format!("Replace {n} folders?")
+        };
+        widgets::confirm_banner(title, body, actions)
     }
 
     /// "Delete X?": nothing comes back after this, so the user is asked.
@@ -119,7 +151,7 @@ impl App {
     }
 
     fn list(&self) -> Element<'_, Message> {
-        if self.addons.is_empty() {
+        if self.addons.is_empty() && self.wrapped.is_empty() {
             let hint = if self.busy {
                 "Scanning…"
             } else {
@@ -131,6 +163,16 @@ impl App {
         }
         let needle = self.search.trim().to_lowercase();
         let mut col = Column::new().spacing(space::ROW_GAP);
+        // First: the game loads none of what they hold. Shown under every
+        // filter but a search that matches neither them nor their addons.
+        for w in &self.wrapped {
+            let hit = needle.is_empty()
+                || w.folder.to_lowercase().contains(&needle)
+                || w.addons.iter().any(|a| a.to_lowercase().contains(&needle));
+            if hit && self.filter != Filter::Outdated {
+                col = col.push(self.wrapped_row(w));
+            }
+        }
         for fam in &self.families {
             let head = &self.addons[fam.head];
             let members: Vec<usize> = fam
@@ -197,6 +239,46 @@ impl App {
         )
         .padding(space::ROW_CHILD_PAD)
         .style(theme::row_disabled)
+        .into()
+    }
+
+    /// A folder holding addons one level too deep: the missing row's look
+    /// (the game does not load them), at head level, with Move up.
+    fn wrapped_row<'a>(&'a self, w: &'a tocsin_core::Wrapped) -> Element<'a, Message> {
+        let n = w.addons.len();
+        let name_col = column![
+            text(&w.folder).size(size::ROW).font(theme::UI_MEDIUM),
+            text(format!(
+                "{} {} one level too deep · the game does not load {}",
+                n,
+                if n == 1 { "addon" } else { "addons" },
+                if n == 1 { "it" } else { "them" },
+            ))
+            .size(size::META)
+            .style(theme::tone(Tone::Error)),
+            text(w.addons.join(", ")).size(size::META).style(theme::muted),
+        ]
+        .spacing(2);
+        let moving = self.installing.as_deref() == Some(w.folder.as_str());
+        container(
+            row![
+                icon_slot(monogram(&w.folder), false, true, None),
+                name_col.width(Fill),
+                container(badge("Not loaded", Tone::Error))
+                    .width(Length::Fixed(space::BADGE_COL_W))
+                    .align_x(Alignment::End),
+                widgets::primary(
+                    if moving { "Moving…" } else { "Move up" },
+                    size::META,
+                    space::BTN_SM
+                )
+                .on_press_maybe((!self.busy).then(|| Message::MoveUp(w.folder.clone()))),
+            ]
+            .spacing(14)
+            .align_y(Alignment::Center),
+        )
+        .padding(space::ROW_PAD)
+        .style(theme::row_missing)
         .into()
     }
 
