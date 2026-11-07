@@ -303,7 +303,7 @@ pub fn merge(lists: Vec<Vec<Hit>>) -> Vec<Found> {
 fn provider_rank(source: &SourceRef) -> u8 {
     match source {
         SourceRef::Tukui { .. } => 0,
-        SourceRef::CurseForge { .. } => 1,
+        SourceRef::CurseForge { .. } | SourceRef::CurseForgeSlug { .. } => 1,
         SourceRef::WowInterface { .. } => 2,
         SourceRef::Github { .. } => 3,
         SourceRef::Manual { .. } => 4,

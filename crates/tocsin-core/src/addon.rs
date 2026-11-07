@@ -358,13 +358,7 @@ impl InstalledAddon {
             _ => Version::parse(v),
         });
 
-        let mut sources = SourceRef::candidates_from_toc(&toc);
-        // A GitHub link in the changelog beats keyed providers: no API key needed.
-        if !sources.iter().any(|s| matches!(s, SourceRef::Github { .. })) {
-            if let Some(gh) = discover::github_from_listing(&listing) {
-                sources.insert(0, gh);
-            }
-        }
+        let sources = with_discovered_github(SourceRef::candidates_from_toc(&toc), &listing);
         let display_name = toc.title().unwrap_or_else(|| folder.clone());
         Some(Self {
             folder,
@@ -404,6 +398,27 @@ impl InstalledAddon {
             self.installed = Some(Version::parse(v));
         }
     }
+}
+
+/// Add the GitHub repository the addon's docs link to, when the `.toc`
+/// names none: after every source the `.toc` declares, before the pages to
+/// check by hand. Without a CurseForge key the declared CurseForge entry is
+/// skipped, so Routine (an id, a repository only in its changelog) is still
+/// checked on GitHub; with one, the `.toc` wins. Ranking the docs link first
+/// sent Auctionator 341, installed from CurseForge, to the repository in its
+/// changelog header, which answers 404 since it went private.
+fn with_discovered_github(mut sources: Vec<SourceRef>, listing: &DirListing) -> Vec<SourceRef> {
+    if sources.iter().any(|s| matches!(s, SourceRef::Github { .. })) {
+        return sources;
+    }
+    if let Some(gh) = discover::github_from_listing(listing) {
+        let at = sources
+            .iter()
+            .position(|s| matches!(s, SourceRef::Manual { .. }))
+            .unwrap_or(sources.len());
+        sources.insert(at, gh);
+    }
+    sources
 }
 
 /// A `.pkgmeta` (BigWigs packager recipe) or a `.git` next to the `.toc` means
@@ -981,6 +996,50 @@ mod tests {
         let a = InstalledAddon::from_dir(&r, Flavor::Retail).unwrap();
         assert!(matches!(a.source(), Some(SourceRef::Github { repo, .. }) if repo == "Midnight-Routine"));
         assert!(a.issues.is_empty());
+    }
+
+    #[test]
+    fn a_changelog_link_ranks_after_what_the_toc_declares() {
+        // Auctionator 341 as extracted by hand from its CurseForge zip.
+        let tmp = tempfile::tempdir().unwrap();
+        let d = tmp.path().join("Auctionator");
+        std::fs::create_dir(&d).unwrap();
+        std::fs::write(
+            d.join("Auctionator.toc"),
+            "## Interface: 120100, 120105, 16001, 50504, 38000, 20506, 11508, 11509\n\
+             ## Title: Auctionator\n## Version: 341\n\
+             ## X-Website: https://www.curseforge.com/wow/addons/auctionator\n",
+        )
+        .unwrap();
+        std::fs::write(
+            d.join("CHANGELOG.md"),
+            "# Auctionator\n\n## [341](https://github.com/TheMouseNest/Auctionator/tree/341) (2026-10-13)\n\
+             [Full Changelog](https://github.com/TheMouseNest/Auctionator/compare/340...341) \n",
+        )
+        .unwrap();
+        let a = InstalledAddon::from_dir(&d, Flavor::Forever).unwrap();
+        let providers: Vec<&str> = a.sources.iter().map(SourceRef::provider).collect();
+        assert_eq!(providers, ["CurseForge", "GitHub", "Manual"]);
+        assert_eq!(
+            a.sources[0],
+            SourceRef::CurseForgeSlug {
+                slug: "auctionator".into()
+            }
+        );
+
+        // Routine's shape with its id: the changelog still beats the manual
+        // page, and comes after the CurseForge id.
+        let r = tmp.path().join("Routine");
+        std::fs::create_dir(&r).unwrap();
+        std::fs::write(r.join("Routine.toc"), "## X-Curse-Project-ID: 1472162\n").unwrap();
+        std::fs::write(
+            r.join("CHANGELOG.md"),
+            "## [v12.0.351](https://github.com/LoyalFTW/Midnight-Routine/tree/v12.0.351)",
+        )
+        .unwrap();
+        let a = InstalledAddon::from_dir(&r, Flavor::Retail).unwrap();
+        let providers: Vec<&str> = a.sources.iter().map(SourceRef::provider).collect();
+        assert_eq!(providers, ["CurseForge", "GitHub"]);
     }
 
     #[test]

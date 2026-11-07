@@ -22,10 +22,15 @@ well-known files in the addon's root are consulted too — read-only, size-cappe
 
 | Signal | Effect |
 |---|---|
-| GitHub link in `X-Website`, `CHANGELOG` or `README` | GitHub, no key needed |
+| GitHub link in `X-Website` | GitHub, no key needed |
 | `X-WoWI-ID` / `X-Tukui-ProjectID` | WoWInterface / Tukui, no key needed |
-| `X-Curse-Project-ID` | CurseForge, with your key |
+| `X-Curse-Project-ID`, or failing it a `curseforge.com/wow/addons/<slug>` page in `X-Website` | CurseForge, with your key (the page is looked up by its slug) |
+| GitHub link only in `CHANGELOG` or `README` | GitHub, no key needed, after every source the `.toc` declares |
 | Any other `X-Website` | Shown as *Check manually* |
+
+A source that answers 404 (a repository made private, a project deleted) is
+not an error while another source or a page to check by hand is left: the
+check moves on to it.
 | `$Revision: N $` in `Ver.lua` | Appended when `## Version` is just `9.6` |
 | `## Interface` vs the game's build | *No .toc for Retail* / *out of date* decided by numbers, not guesses |
 | Same GitHub repo, `## Dependencies` / `## X-Part-Of`, or `## OptionalDeps` by the same author | Grouped as a family |
@@ -239,7 +244,10 @@ that way:
 - To find the logos of your installed addons, Tocsin sends CurseForge (with
   your key) the CurseForge ids of every installed addon that has one, 20 to
   a request, once per session; the update check alone only asks about the
-  addons CurseForge actually serves. No key, no request. WoWInterface
+  addons CurseForge actually serves. No key, no request. An addon whose
+  `.toc` names its CurseForge page but no id is checked by sending
+  CurseForge the slug from that page (`/v1/mods/search?gameId=1&slug=…`),
+  which tells it the same as the id would: that you have this addon. WoWInterface
   thumbnails come from its catalog only when you already opened *Get
   addons*: the 6 MB catalog is never downloaded for icons.
 - Only `https://` links are ever handed to your browser.

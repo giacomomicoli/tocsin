@@ -101,9 +101,7 @@ pub async fn check_one(
     // CurseForge key. Remember the first real failure for the error message.
     let mut first_error: Option<String> = None;
     let mut manual: Option<String> = None;
-    // "No release" from every API (Ace3's GitHub mirror has none) is not a
-    // failure worth a red badge when a page to check by hand exists.
-    let mut only_no_release = true;
+    let mut only_missing = true;
     for source in &addon.sources {
         if let SourceRef::Manual { .. } = source {
             manual.get_or_insert_with(|| source.web_url());
@@ -126,21 +124,35 @@ pub async fn check_one(
             }
             Err(e) => {
                 tracing::warn!(addon = %addon.folder, provider = source.provider(), error = %e, "update check failed");
-                only_no_release &= matches!(e, SourceError::NoRelease);
+                only_missing &= matches!(e, SourceError::NoRelease | SourceError::NotFound);
                 first_error.get_or_insert_with(|| format!("{}: {e}", source.provider()));
             }
         }
     }
+    settle(addon, first_error, manual, only_missing)
+}
 
+/// The status of an addon no source gave a release for. "No release" or
+/// "not found" from every API asked (Ace3's GitHub mirror has no releases;
+/// the repository in Auctionator's changelog is gone) is not a failure worth
+/// a red badge when a page to check by hand exists.
+fn settle(
+    addon: &InstalledAddon,
+    first_error: Option<String>,
+    manual: Option<String>,
+    only_missing: bool,
+) -> UpdateStatus {
     match (first_error, manual) {
-        (Some(_), Some(url)) if only_no_release => return UpdateStatus::Manual(url),
-        (Some(e), _) => return UpdateStatus::Error(e),
-        (None, Some(url)) => return UpdateStatus::Manual(url),
-        (None, None) => {}
+        (Some(_), Some(url)) if only_missing => UpdateStatus::Manual(url),
+        (Some(e), _) => UpdateStatus::Error(e),
+        (None, Some(url)) => UpdateStatus::Manual(url),
+        (None, None) => {
+            // Only keyed providers were advertised and we hold none of the keys.
+            let mut needed: Vec<&str> = addon.sources.iter().map(SourceRef::provider).collect();
+            needed.dedup();
+            UpdateStatus::Error(format!("API key needed for {} (see README)", needed.join(" or ")))
+        }
     }
-    // Only keyed providers were advertised and we hold none of the keys.
-    let needed: Vec<&str> = addon.sources.iter().map(SourceRef::provider).collect();
-    UpdateStatus::Error(format!("API key needed for {} (see README)", needed.join(" or ")))
 }
 
 fn compare(addon: &InstalledAddon, release: Release) -> UpdateStatus {
@@ -353,6 +365,39 @@ mod tests {
         )
         .await;
         assert!(none.is_empty());
+    }
+
+    #[test]
+    fn a_source_that_is_gone_falls_back_to_the_page() {
+        // Auctionator 341 without a CurseForge key: CurseForge skipped, the
+        // changelog's GitHub repository answered 404, the page is left.
+        let a = addon("## X-Website: https://www.curseforge.com/wow/addons/auctionator\n");
+        let page = "https://www.curseforge.com/wow/addons/auctionator".to_string();
+        let gone = Some("GitHub: project not found".to_string());
+        assert_eq!(
+            settle(&a, gone.clone(), Some(page.clone()), true),
+            UpdateStatus::Manual(page.clone())
+        );
+        // A real failure (timeout, 5xx) still says so.
+        assert_eq!(
+            settle(&a, gone.clone(), Some(page), false),
+            UpdateStatus::Error("GitHub: project not found".into())
+        );
+        // Nothing to fall back on: the user still learns why.
+        assert_eq!(
+            settle(&a, gone, None, true),
+            UpdateStatus::Error("GitHub: project not found".into())
+        );
+    }
+
+    #[test]
+    fn keyed_sources_are_named_once() {
+        let mut a = addon("## X-Curse-Project-ID: 5\n");
+        a.sources.push(SourceRef::CurseForgeSlug { slug: "x".into() });
+        assert_eq!(
+            settle(&a, None, None, true),
+            UpdateStatus::Error("API key needed for CurseForge (see README)".into())
+        );
     }
 
     #[test]
