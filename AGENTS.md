@@ -15,7 +15,8 @@ The workspace has two crates:
   version comparison, update sources, families, secrets, addon icons
   (`icons.rs`: allowed hosts, capped download, limited decode, disk cache),
   the game's own icon (`game_icon.rs`: capped reads of the executable's
-  resources, decoded by `icons.rs`).
+  resources, decoded by `icons.rs`), addon pages (`page/`: description
+  converters to plain blocks, page pictures with their own allowed hosts).
 - `crates/tocsin` — the iced GUI. Thin: state, messages, views. Logic lives in core.
   `app.rs` holds state, `update` and the window frame; each page's view is a
   child module (`app/library.rs`, `app/discover.rs`, `app/settings.rs`), the
@@ -39,6 +40,7 @@ cargo run -p tocsin                                      # GUI (debug)
 cargo run -p tocsin-core --example check -- fixtures/AddOns   # headless check
 cargo run -p tocsin-core --example install -- <AddOns> <zip> [key]   # headless install/rollback
 cargo run -p tocsin-core --example search -- <query> [retail|classic|vanilla]   # headless search
+cargo run -p tocsin-core --example page -- github:<owner>/<repo>   # headless addon page (or curseforge:<id>, wowinterface:<id>, tukui:<slug>)
 ```
 
 CI runs fmt, clippy with `-D warnings`, tests on Windows and Linux, and
@@ -54,7 +56,8 @@ When goals conflict, they rank in this order.
    - `#![forbid(unsafe_code)]` stays in every crate.
    - HTTPS only; every request goes through `http::Http` (timeouts, body cap,
      redirects checked hop by hop: same host for APIs, `download::ALLOWED_HOSTS`
-     for downloads, `icons::ALLOWED_HOSTS` for addon icons). Never add another
+     for downloads, `icons::ALLOWED_HOSTS` for addon icons,
+     `page::media::ALLOWED_HOSTS` for addon page pictures). Never add another
      client outside it. A new host is a security change: say so in
      "Security posture" in `docs/technical.md`.
    - Every file read has a size cap and reads only well-known names. Never walk
@@ -62,7 +65,9 @@ When goals conflict, they rank in this order.
      its files are read back through `icons::decode` under the same caps.
    - Images from the network are untrusted input: they are decoded only by
      `icons::decode` (format from the first bytes, PNG or JPEG only, side and
-     memory limits), off the UI thread, and reach the GUI as RGBA. The GUI
+     memory limits) or, for addon page pictures, `page::media::decode` (PNG,
+     JPEG or the first frame of a GIF, larger limits, scaled down), off the
+     UI thread, and reach the GUI as RGBA. The GUI
      never decodes a downloaded file. The game's icon, read from its
      executable, is untrusted the same way: `icons::decode` for a PNG,
      `icons::decode_icon_bitmap` for a bitmap, under the same limits.
@@ -83,6 +88,10 @@ When goals conflict, they rank in this order.
      `archive::inspect` before `archive::extract`; folders move by rename,
      never copy, and every multi-step swap undoes itself on failure.
    - Validate anything that ends up in a URL (owner/repo, ids).
+   - Descriptions (HTML, BBCode, Markdown) are untrusted input: they become
+     `page::Doc` blocks in the core, in one pass without recursion and
+     within the limits in `page::doc`; links pass `http::browser_url`. The
+     GUI never renders HTML or Markdown itself.
 2. **Performance.** Startup must feel instant; checks run concurrently with a
    bound (`checker::MAX_CONCURRENCY`). Blocking I/O goes through
    `spawn_blocking`, never on the UI thread. Prefer borrowing over cloning; an

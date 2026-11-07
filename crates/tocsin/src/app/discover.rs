@@ -1,8 +1,8 @@
 //! The "Get addons" page: search across providers, one row per addon with
 //! a line per site offering it, and the "replace these folders?" card.
 
-use iced::widget::{column, container, row, space, text, text_input, Column};
-use iced::{Alignment, Element, Fill, Length};
+use iced::widget::{button, column, container, row, space, text, text_input, Column};
+use iced::{Alignment, Element, Fill, Length, Padding};
 
 use tocsin_core::addon::Compat;
 use tocsin_core::disk::human_size;
@@ -11,7 +11,7 @@ use tocsin_core::secrets::Secret;
 use tocsin_core::SourceRef;
 
 use super::widgets::{self, badge, ellipsize, icon_slot, monogram};
-use super::{App, CatalogState, Message, PendingInstall, ResolvedInstall, Screen};
+use super::{App, CatalogState, Message, PendingInstall, ResolvedInstall, Screen, DISCOVER_LIST};
 use crate::theme::{self, size, Tone};
 
 impl App {
@@ -87,11 +87,12 @@ impl App {
         page = page.push(self.results_bar());
         // Strict hides what no site confirms, but never an addon already
         // installed: the row still says whether that copy fits this game.
-        let shown: Vec<&Found> = d
+        let shown: Vec<(usize, &Found)> = d
             .outcome
             .results
             .iter()
-            .filter(|f| !d.strict || f.confirmed() || self.installed.contains(f))
+            .enumerate()
+            .filter(|(_, f)| !d.strict || f.confirmed() || self.installed.contains(f))
             .collect();
         if shown.is_empty() {
             let hint = format!(
@@ -103,10 +104,14 @@ impl App {
         }
         let list = shown
             .into_iter()
-            .fold(Column::new().spacing(theme::space::ROW_GAP), |col, f| {
-                col.push(self.found_row(f))
+            .fold(Column::new().spacing(theme::space::ROW_GAP), |col, (i, f)| {
+                col.push(self.found_row(i, f))
             });
-        page.push(widgets::scroll(list)).into()
+        // Its position is kept for the addon page's Back.
+        let list = widgets::scroll(list)
+            .id(DISCOVER_LIST)
+            .on_scroll(|v| Message::ListScrolled(Screen::Discover, v.absolute_offset()));
+        page.push(list).into()
     }
 
     /// "Results for Forever 1.60.1 · 9 confirmed · 4 unverified", with the
@@ -208,7 +213,7 @@ impl App {
 
     /// Three squares lit in turn, then `label`. Driven by `tick`, which only
     /// advances while [`App::subscription`] sees something loading.
-    fn loader<'a>(&self, label: &'a str) -> Element<'a, Message> {
+    pub(super) fn loader<'a>(&self, label: &'a str) -> Element<'a, Message> {
         let lit = self.tick % 3;
         let dots = (0..3).fold(row![].spacing(6), |r, i| {
             r.push(
@@ -226,7 +231,7 @@ impl App {
 
     /// One search result: what it is on the left, one line per site offering
     /// it on the right, each with its own Install button.
-    fn found_row<'a>(&'a self, f: &'a Found) -> Element<'a, Message> {
+    fn found_row<'a>(&'a self, index: usize, f: &'a Found) -> Element<'a, Message> {
         let installed = self.installed.contains(f);
         let primary = f.primary();
         let authors = f.authors();
@@ -317,18 +322,24 @@ impl App {
 
         // The picture once it has arrived; the monogram meanwhile, or for good.
         let picture = self.icon(f.icon());
-        container(
+        // Icon and name open the addon's page, when a site has one.
+        let has_page = f.hits.iter().any(|h| tocsin_core::page::has_page(&h.source));
+        let named = button(
             row![
                 icon_slot(monogram(&primary.name), false, false, picture),
-                name_col.width(Fill),
-                sources
+                name_col.width(Fill)
             ]
             .spacing(14)
             .align_y(Alignment::Center),
         )
-        .padding(theme::space::ROW_PAD)
-        .style(theme::row)
-        .into()
+        .padding(Padding::ZERO)
+        .width(Fill)
+        .style(theme::name_link(false))
+        .on_press_maybe(has_page.then_some(Message::OpenFoundPage(self.discover.seq, index)));
+        container(row![named, sources].spacing(14).align_y(Alignment::Center))
+            .padding(theme::space::ROW_PAD)
+            .style(theme::row)
+            .into()
     }
 }
 

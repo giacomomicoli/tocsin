@@ -10,6 +10,7 @@ use serde::Deserialize;
 use super::{Release, SourceError};
 use crate::addon::{Compat, Flavor};
 use crate::http::Http;
+use crate::page::{Page, Shot};
 use crate::search::{downloads, interface_codes, repo_of, simplify, year_of_iso, Hit};
 use crate::version::Version;
 
@@ -22,6 +23,23 @@ struct TukuiAddon {
     web_url: Option<String>,
     #[serde(default)]
     last_update: Option<String>,
+    /// One line about the addon, for the library.
+    #[serde(default)]
+    small_desc: Option<String>,
+    // The addon page reads these from the same answer.
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    author: Option<String>,
+    /// Markdown.
+    #[serde(default)]
+    desc: Option<String>,
+    /// The first screenshot, on `storage.tukui.org`.
+    #[serde(default)]
+    screenshot_url: Option<String>,
+    /// The others.
+    #[serde(default, deserialize_with = "strings")]
+    gallery_url: Vec<String>,
 }
 
 /// Map the legacy numeric `X-Tukui-ProjectID` to an API slug.
@@ -147,6 +165,12 @@ pub async fn latest(http: &Http, slug: &str) -> Result<Release, SourceError> {
     let url = format!("https://api.tukui.org/v1/addon/{slug}");
     let a: TukuiAddon = http.get_json(&url, &[]).await?;
     Ok(Release {
+        summary: a
+            .small_desc
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
         version: Version::parse(&a.version),
         url: a.web_url.unwrap_or_else(|| format!("https://tukui.org/{slug}")),
         published_at: a.last_update,
@@ -158,9 +182,65 @@ pub async fn latest(http: &Http, slug: &str) -> Result<Release, SourceError> {
     })
 }
 
+/// The page of `slug`: the same `GET /v1/addon/{slug}` as an update check.
+pub async fn page(http: &Http, slug: &str) -> Result<Page, SourceError> {
+    if !valid_slug(slug) {
+        return Err(SourceError::NotFound);
+    }
+    let url = format!("https://api.tukui.org/v1/addon/{slug}");
+    let a: TukuiAddon = http.get_json(&url, &[]).await?;
+    Ok(page_from(a, slug))
+}
+
+fn page_from(a: TukuiAddon, slug: &str) -> Page {
+    let gallery = a
+        .screenshot_url
+        .iter()
+        .chain(&a.gallery_url)
+        .filter_map(|u| Shot::new(u, None, ""))
+        .collect();
+    Page {
+        name: if a.name.trim().is_empty() {
+            slug.to_string()
+        } else {
+            a.name.trim().to_string()
+        },
+        summary: a.small_desc.unwrap_or_default().trim().to_string(),
+        authors: a.author.into_iter().filter(|s| !s.trim().is_empty()).collect(),
+        url: a
+            .web_url
+            .filter(|u| u.starts_with("https://"))
+            .unwrap_or_else(|| format!("https://tukui.org/{slug}")),
+        gallery,
+        body: crate::page::from_markdown(a.desc.as_deref().unwrap_or_default(), "https://tukui.org/"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_page_has_the_gallery_and_the_markdown() {
+        // Shaped like `GET /v1/addon/elvui` in November 2026.
+        let json = r###"{"id":-2,"slug":"elvui","author":"Elv","name":"ElvUI","version":"16.01",
+            "web_url":"https://tukui.org/elvui","small_desc":"A user interface designed around user-friendliness.",
+            "desc":"## About\n\n**ElvUI** replaces the default UI.",
+            "screenshot_url":"https://storage.tukui.org/ElvUI-1.jpg",
+            "gallery_url":["https://storage.tukui.org/ElvUI-2.jpg",null]}"###;
+        let a: TukuiAddon = serde_json::from_str(json).unwrap();
+        let page = page_from(a, "elvui");
+        assert_eq!(
+            page.summary,
+            "A user interface designed around user-friendliness."
+        );
+        assert_eq!(page.authors, ["Elv"]);
+        assert_eq!(page.gallery.len(), 2);
+        assert_eq!(
+            crate::page::doc::plain(&page.body),
+            ["h2 About", "ElvUI replaces the default UI."]
+        );
+    }
 
     #[test]
     fn slugs() {

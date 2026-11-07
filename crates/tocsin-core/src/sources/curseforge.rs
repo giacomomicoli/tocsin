@@ -3,6 +3,7 @@
 //! `GET https://api.curseforge.com/v1/mods/{id}` with header `x-api-key`;
 //! a project known only by its slug is looked up with
 //! `GET /v1/mods/search?gameId=1&slug={slug}`, which answers the same mod.
+//! An addon page adds `GET /v1/mods/{id}/description` (HTML).
 //! Keys are free for personal use at <https://console.curseforge.com/>.
 //! Set `TOCSIN_CURSEFORGE_KEY`; the key is never written into the repo.
 
@@ -12,6 +13,7 @@ use serde::Deserialize;
 use super::{Release, SourceError};
 use crate::addon::{Compat, Flavor};
 use crate::http::Http;
+use crate::page::{Page, Shot};
 use crate::search::{author_names, downloads, interface_codes, repo_of, year_of_iso, Hit, PER_PROVIDER};
 use crate::version::Version;
 
@@ -42,6 +44,34 @@ struct Mod {
     links: Links,
     #[serde(default, rename = "latestFiles")]
     latest_files: Vec<File>,
+    #[serde(default)]
+    name: String,
+    /// One line about the project, shown in the library and on its page.
+    #[serde(default)]
+    summary: String,
+    #[serde(default)]
+    authors: Vec<serde_json::Value>,
+    /// `null` on projects without any.
+    #[serde(default)]
+    screenshots: Option<Vec<Screenshot>>,
+}
+
+/// A project screenshot (`ModAsset`), on `media.forgecdn.net`.
+#[derive(Debug, Deserialize)]
+struct Screenshot {
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default, rename = "thumbnailUrl")]
+    thumbnail_url: Option<String>,
+}
+
+/// `GET /v1/mods/{id}/description`: the description as HTML.
+#[derive(Debug, Deserialize)]
+struct Description {
+    #[serde(default)]
+    data: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -371,6 +401,64 @@ pub async fn latest_by_slug(
     release_of(m, id, flavor)
 }
 
+/// The page of mod `id`: the same `GET /v1/mods/{id}` as an update check
+/// (so usually answered from the run's cache), then its description,
+/// `GET /v1/mods/{id}/description`, documented at
+/// <https://docs.curseforge.com/rest-api/#get-mod-description>.
+pub async fn page(http: &Http, key: &str, id: u64) -> Result<Page, SourceError> {
+    let url = format!("https://api.curseforge.com/v1/mods/{id}");
+    let env: Envelope = http.get_json(&url, &[("x-api-key", key)]).await?;
+    page_of(http, key, env.data, id).await
+}
+
+/// The page of the WoW addon called `slug`, as [`latest_by_slug`] finds it.
+pub async fn page_by_slug(http: &Http, key: &str, slug: &str) -> Result<Page, SourceError> {
+    if !valid_slug(slug) {
+        return Err(SourceError::NotFound);
+    }
+    let mut url = Url::parse("https://api.curseforge.com/v1/mods/search").expect("static url");
+    url.query_pairs_mut()
+        .append_pair("gameId", &WOW_GAME_ID.to_string())
+        .append_pair("slug", slug);
+    let list: ModList = http.get_json(url.as_str(), &[("x-api-key", key)]).await?;
+    let m = addon_with_slug(list, slug).ok_or(SourceError::NotFound)?;
+    let id = m.id;
+    page_of(http, key, m, id).await
+}
+
+async fn page_of(http: &Http, key: &str, m: Mod, id: u64) -> Result<Page, SourceError> {
+    if m.game_id != 0 && m.game_id != WOW_GAME_ID {
+        return Err(SourceError::NotFound);
+    }
+    let url = format!("https://api.curseforge.com/v1/mods/{id}/description");
+    let d: Description = http.get_json(&url, &[("x-api-key", key)]).await?;
+    Ok(page_from(m, id, &d.data))
+}
+
+/// The page of `m`, its description being `html`.
+fn page_from(m: Mod, id: u64, html: &str) -> Page {
+    let url = m
+        .links
+        .website_url
+        .clone()
+        .unwrap_or_else(|| format!("https://www.curseforge.com/projects/{id}"));
+    let gallery = m
+        .screenshots
+        .iter()
+        .flatten()
+        .filter_map(|s| Shot::new(s.url.as_deref()?, s.thumbnail_url.as_deref(), &s.title))
+        .collect();
+    let base = "https://www.curseforge.com/";
+    Page {
+        name: m.name.trim().to_string(),
+        summary: m.summary.trim().to_string(),
+        authors: author_names(&m.authors),
+        body: crate::page::from_html(html, base, base),
+        url,
+        gallery,
+    }
+}
+
 /// The WoW addon called `slug` in a slug search answer. The filter is
 /// checked again here: the slug is unique per kind of project, not per
 /// game, so only an addon page (`/wow/addons/`) is taken.
@@ -443,12 +531,44 @@ fn release_of(m: Mod, id: u64, flavor: Flavor) -> Result<Release, SourceError> {
         provider: String::new(),
         interfaces: None,
         size: file.file_length.filter(|&n| n > 0),
+        summary: Some(m.summary.trim().to_string()).filter(|s| !s.is_empty()),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_page_takes_screenshots_summary_and_description() {
+        // Shaped like `GET /v1/mods/61284` and its `/description`.
+        let json = r#"{"data":{"id":61284,"gameId":1,"name":" Details! Damage Meter ","summary":"Computes damage and healing.",
+          "authors":[{"id":1,"name":"Terciob","url":"x"}],
+          "links":{"websiteUrl":"https://www.curseforge.com/wow/addons/details"},
+          "screenshots":[{"id":1,"modId":61284,"title":"Raid view","description":"",
+             "thumbnailUrl":"https://media.forgecdn.net/attachments/thumbnails/1/2/310/172/raid.png",
+             "url":"https://media.forgecdn.net/attachments/1/2/raid.png"},
+             {"id":2,"title":"no url"}],
+          "latestFiles":[]}}"#;
+        let env: Envelope = serde_json::from_str(json).unwrap();
+        let page = page_from(env.data, 61284, "<p>Shows <strong>who</strong> did what.</p>");
+        assert_eq!(page.name, "Details! Damage Meter");
+        assert_eq!(page.summary, "Computes damage and healing.");
+        assert_eq!(page.authors, ["Terciob"]);
+        assert_eq!(page.url, "https://www.curseforge.com/wow/addons/details");
+        assert_eq!(page.gallery.len(), 1);
+        assert_eq!(
+            page.gallery[0].thumb,
+            "https://media.forgecdn.net/attachments/thumbnails/1/2/310/172/raid.png"
+        );
+        assert_eq!(crate::page::doc::plain(&page.body), ["Shows who did what."]);
+
+        // A project without screenshots answers `null`.
+        let bare: Envelope = serde_json::from_str(r#"{"data":{"id":7,"screenshots":null}}"#).unwrap();
+        let page = page_from(bare.data, 7, "");
+        assert_eq!(page.url, "https://www.curseforge.com/projects/7");
+        assert!(page.gallery.is_empty() && page.body.is_empty());
+    }
 
     #[test]
     fn decodes_envelope() {

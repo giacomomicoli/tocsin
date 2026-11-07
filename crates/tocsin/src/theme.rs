@@ -61,13 +61,15 @@ pub mod size {
     pub const META: f32 = 12.0; // meta lines, small buttons
     pub const CONTROL: f32 = 13.0; // controls, installed version
     pub const CHILD: f32 = 14.0; // child row name
+    pub const TEXT: f32 = 14.0; // running text of an addon page
     pub const ROW: f32 = 15.0; // row name
     pub const SECTION: f32 = 16.0; // Settings section title
     pub const PAGE: f32 = 18.0; // page title
 }
 /// Spacing / padding steps. Paddings are `[vertical, horizontal]`.
 pub mod space {
-    pub const WINDOW: (f32, f32) = (1120.0, 700.0);
+    pub const WINDOW: (f32, f32) = (1280.0, 800.0);
+    pub const WINDOW_MIN: (f32, f32) = (1000.0, 620.0);
     pub const SIDEBAR_W: f32 = 240.0;
     pub const SIDEBAR_PAD: [u16; 4] = [18, 14, 14, 14]; // top right bottom left
     pub const CONTENT_PAD: u16 = 20;
@@ -96,6 +98,12 @@ pub mod space {
     pub const SCROLLBAR_W: f32 = 6.0;
     pub const PROGRESS_W: f32 = 160.0; // download progress bar in the footer
     pub const PROGRESS_H: f32 = 6.0;
+    // The addon page.
+    pub const READ_W: f32 = 840.0; // reading column: text, pictures, gallery
+    pub const PROSE_GAP: u32 = 10; // between blocks of a description
+    pub const SHOT_H: f32 = 360.0; // the gallery's shown screenshot
+    pub const THUMB_H: f32 = 54.0; // a gallery thumbnail (16:9 → 96px wide)
+    pub const THUMB_PAD: u16 = 2; // thumbnail ↔ its border
 }
 const R1: f32 = 2.0; // badges, rows
 const R2: f32 = 3.0; // buttons, inputs
@@ -237,6 +245,17 @@ pub static SUNWELL: Tokens = Tokens {
 /// The token set behind an iced `Theme` built by [`void`] or [`sunwell`].
 pub fn tokens(theme: &Theme) -> &'static Tokens {
     if theme.extended_palette().is_dark {
+        &VOID
+    } else {
+        &SUNWELL
+    }
+}
+
+/// The token set of the dark (`true`) or light theme, for what is styled
+/// ahead of drawing rather than by a style function: the link color baked
+/// into an addon page's text spans.
+pub fn tokens_for(dark: bool) -> &'static Tokens {
+    if dark {
         &VOID
     } else {
         &SUNWELL
@@ -491,6 +510,18 @@ pub fn hover_tip(theme: &Theme) -> container::Style {
         ..Default::default()
     }
 }
+/// A sunken well on an addon page: a code block, the gallery's shown
+/// screenshot, a picture shown as a link. The icon slot's fill with a row
+/// border, so it reads as content, not as trim.
+pub fn sunken(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(t.surface_sunken.into()),
+        border: bd(t.border_row, R1),
+        text_color: Some(t.text_1),
+        ..Default::default()
+    }
+}
 /// Flavor tag in Settings (gold, not a status).
 pub fn tag_gold(theme: &Theme) -> container::Style {
     let t = tokens(theme);
@@ -655,6 +686,49 @@ pub fn remove_mark(theme: &Theme, status: button::Status) -> button::Style {
         border: bd(Color::TRANSPARENT, R1),
         shadow: Shadow::default(),
         snap: false,
+    }
+}
+/// An addon's icon and name in a list row, which open its page: no
+/// surface, no border, the name turning gold under the cursor. `dim` keeps
+/// a disabled row's faded text. Disabled (no page) looks like the row.
+pub fn name_link(dim: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme, status| {
+        let t = tokens(theme);
+        let hover = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: None,
+            text_color: match (hover, dim) {
+                (true, _) => t.text_gold,
+                (false, true) => t.text_3,
+                (false, false) => t.text_1,
+            },
+            border: bd(Color::TRANSPARENT, R1),
+            shadow: Shadow::default(),
+            snap: false,
+        }
+    }
+}
+/// A gallery thumbnail on an addon page: the icon slot's sunken fill, a
+/// row border that turns gold under the cursor, and the selected chip's
+/// gold border while its picture is the one shown.
+pub fn thumb(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme, status| {
+        let t = tokens(theme);
+        let hover = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        let border = if selected {
+            t.selected_border
+        } else if hover {
+            t.border_row_hover
+        } else {
+            t.border_row
+        };
+        button::Style {
+            background: Some(t.surface_sunken.into()),
+            text_color: t.text_2,
+            border: bd(border, R1),
+            shadow: Shadow::default(),
+            snap: false,
+        }
     }
 }
 /// "+ Add game folder" in the sidebar (iced has no dashed borders: solid, muted).

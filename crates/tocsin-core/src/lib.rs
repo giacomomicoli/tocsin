@@ -22,6 +22,7 @@ pub mod http;
 pub mod icons;
 pub mod install;
 pub mod manifest;
+pub mod page;
 pub mod paths;
 pub mod search;
 pub mod secrets;

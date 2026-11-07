@@ -33,7 +33,7 @@ fn main() -> iced::Result {
         .default_font(theme::UI)
         .window(window::Settings {
             size: Size::new(theme::space::WINDOW.0, theme::space::WINDOW.1),
-            min_size: Some(Size::new(1000.0, 620.0)),
+            min_size: Some(Size::new(theme::space::WINDOW_MIN.0, theme::space::WINDOW_MIN.1)),
             icon: window_icon(),
             ..Default::default()
         })

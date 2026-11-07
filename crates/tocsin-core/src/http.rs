@@ -9,8 +9,9 @@
 //! * no cookies, explicit User-Agent;
 //! * redirects checked hop by hop, before they are followed: an API request
 //!   stays on the host it was sent to, a download only ever touches the
-//!   hosts in `download::ALLOWED_HOSTS`, and an addon icon those in
-//!   `icons::ALLOWED_HOSTS` (see [`redirect_verdict`]).
+//!   hosts in `download::ALLOWED_HOSTS`, an addon icon those in
+//!   `icons::ALLOWED_HOSTS`, and a picture of an addon page those in
+//!   `page::media::ALLOWED_HOSTS` (see [`redirect_verdict`]).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -106,6 +107,9 @@ pub struct Http {
     /// Addon icons: redirects only to the icon hosts, and a short timeout,
     /// since a list icon that is slow to come is not worth waiting for.
     images: Client,
+    /// Pictures of an addon page: redirects only to the page picture
+    /// hosts, and a timeout sized for a screenshot rather than an icon.
+    media: Client,
     cache: Arc<Mutex<HashMap<String, Bytes>>>,
     /// One async lock per URL so concurrent callers for the same endpoint
     /// wait for the first fetch instead of all hitting the network.
@@ -152,10 +156,21 @@ impl Http {
                 Err(why) => attempt.error(why),
             }
         });
+        let media = Policy::custom(|attempt| {
+            match redirect_verdict(
+                attempt.previous(),
+                attempt.url(),
+                crate::page::media::is_allowed_host,
+            ) {
+                Ok(()) => attempt.follow(),
+                Err(why) => attempt.error(why),
+            }
+        });
         Self {
             client: build(api, Some(Duration::from_secs(20))),
             downloads: build(downloads, None),
             images: build(images, Some(Duration::from_secs(10))),
+            media: build(media, Some(Duration::from_secs(30))),
             cache: Arc::new(Mutex::new(HashMap::new())),
             inflight: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -422,6 +437,56 @@ impl Http {
             return Err(HttpError::UntrustedRedirect(landed.to_string()));
         }
         read_capped(resp, host, cap).await
+    }
+
+    /// GET a picture of an addon page and return its bytes, at most `cap`
+    /// of them. As [`Http::get_image`], with the page picture hosts: the
+    /// host was vetted by the caller (`page::media::fetch`), every redirect
+    /// hop by the client's policy, and where the body comes from is checked
+    /// again here. Never cached: the GUI keeps the decoded picture.
+    pub async fn get_media(&self, url: &str, cap: usize) -> Result<Bytes, HttpError> {
+        let parsed = parse_https(url)?;
+        let host = parsed.host_str().unwrap_or("server").to_string();
+        let resp = self
+            .media
+            .get(parsed)
+            .header("Accept", "image/png, image/jpeg, image/gif")
+            .send()
+            .await?;
+        let landed = resp.url().host_str().unwrap_or_default();
+        if resp.url().scheme() != "https" || !crate::page::media::is_allowed_host(landed) {
+            return Err(HttpError::UntrustedRedirect(landed.to_string()));
+        }
+        read_capped(resp, host, cap).await
+    }
+
+    /// GET an API answer that is text, not JSON (a README GitHub renders as
+    /// HTML), with `accept` as its `Accept` header: the same client, HTTPS
+    /// check, same-host redirects, [`MAX_BODY_BYTES`] cap and per-run cache
+    /// as [`Http::get_json`]. Invalid UTF-8 is replaced, not refused.
+    pub async fn get_text(
+        &self,
+        url: &str,
+        accept: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<String, HttpError> {
+        let parsed = parse_https(url)?;
+        let host = parsed.host_str().unwrap_or("server").to_string();
+        let mut key = format!("{url}|accept={accept}");
+        for (name, _) in headers {
+            key.push('|');
+            key.push_str(name);
+        }
+        let bytes = self
+            .cached_or_fetch(&key, || async {
+                let mut req = self.client.get(parsed).header("Accept", accept);
+                for (k, v) in headers {
+                    req = req.header(*k, *v);
+                }
+                read_capped(req.send().await?, host, MAX_BODY_BYTES).await
+            })
+            .await?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 }
 
