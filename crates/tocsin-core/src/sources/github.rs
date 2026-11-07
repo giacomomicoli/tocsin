@@ -10,6 +10,7 @@ use super::{Credentials, Release, SourceError, SourceRef};
 use crate::addon::{Compat, Flavor};
 use crate::http::Http;
 use crate::http::HttpError;
+use crate::page::Page;
 use crate::search::{year_of_iso, Hit, Popularity, PER_PROVIDER};
 use crate::version::Version;
 
@@ -297,6 +298,7 @@ fn release_of(chosen: Chosen, hint: Hint<'_>, manifest: Option<&PackagerManifest
         provider: String::new(),
         interfaces,
         size: asset.and_then(|a| a.size).filter(|&n| n > 0),
+        summary: None,
     }
 }
 
@@ -470,6 +472,9 @@ struct Repo {
     stargazers_count: u64,
     #[serde(default)]
     pushed_at: Option<String>,
+    /// Where a README's relative links point (`GET /repos/{owner}/{repo}`).
+    #[serde(default)]
+    default_branch: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -530,6 +535,79 @@ fn repo_hit(r: Repo) -> Option<Hit> {
     })
 }
 
+/// The page of `owner/repo`: the repository (`GET /repos/{owner}/{repo}`,
+/// for its description and default branch) and its README as GitHub
+/// renders it (`GET /repos/{owner}/{repo}/readme` with the HTML media
+/// type, documented at
+/// <https://docs.github.com/en/rest/repos/contents#get-a-repository-readme>).
+/// Two requests, with the token when there is one; GitHub has no
+/// screenshots field, so the gallery is empty. A repository without a
+/// README has a page with an empty description.
+pub async fn page(http: &Http, creds: &Credentials, owner: &str, repo: &str) -> Result<Page, SourceError> {
+    if !valid_segment(owner) || !valid_segment(repo) {
+        return Err(SourceError::NotFound);
+    }
+    let url = format!("https://api.github.com/repos/{owner}/{repo}");
+    let info: Repo = get(http, creds, &url, Cache::PerRun).await?;
+    let readme = match readme_html(http, creds, &format!("{url}/readme")).await {
+        Ok(html) => html,
+        Err(HttpError::Status { status: 404, .. }) => String::new(),
+        Err(e) => return Err(e.into()),
+    };
+    Ok(page_from(info, owner, repo, &readme))
+}
+
+/// The page of `info`, its README rendered as `html`. Relative links point
+/// into the repository at its default branch; relative pictures at their
+/// raw file.
+fn page_from(info: Repo, owner: &str, repo: &str, html: &str) -> Page {
+    let branch = info
+        .default_branch
+        .as_deref()
+        .filter(|b| valid_segment(b))
+        .unwrap_or("HEAD");
+    let links = format!("https://github.com/{owner}/{repo}/blob/{branch}/");
+    let images = format!("https://github.com/{owner}/{repo}/raw/{branch}/");
+    let url = if info.html_url.starts_with("https://github.com/") {
+        info.html_url
+    } else {
+        format!("https://github.com/{owner}/{repo}")
+    };
+    Page {
+        name: info.name,
+        summary: info.description.unwrap_or_default().trim().to_string(),
+        authors: vec![info.owner.login],
+        url,
+        gallery: Vec::new(),
+        body: crate::page::from_html(html, &links, &images),
+    }
+}
+
+/// The README of the repository at `url` as HTML, with the same token
+/// handling as [`get`].
+async fn readme_html(http: &Http, creds: &Credentials, url: &str) -> Result<String, HttpError> {
+    let token = creds.github_token();
+    match readme_with(http, url, token).await {
+        Err(e) if retry_anonymously(&e, token.is_some()) => {
+            creds.refuse_github_token();
+            tracing::warn!("GitHub refused the token; continuing without it");
+            readme_with(http, url, None).await
+        }
+        other => other,
+    }
+}
+
+async fn readme_with(http: &Http, url: &str, token: Option<&str>) -> Result<String, HttpError> {
+    let mut headers: Vec<(&str, &str)> = vec![("X-GitHub-Api-Version", "2022-11-28")];
+    let auth;
+    if let Some(t) = token {
+        auth = format!("Bearer {t}");
+        headers.push(("Authorization", &auth));
+    }
+    http.get_text(url, "application/vnd.github.html+json", &headers)
+        .await
+}
+
 /// Owner/repo names: GitHub allows alphanumerics, `-`, `_` and `.`.
 fn valid_segment(s: &str) -> bool {
     !s.is_empty()
@@ -563,6 +641,34 @@ pub fn parse_repo_url(url: &str) -> Option<SourceRef> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_readme_links_into_its_repository() {
+        // Shaped like `GET /repos/kesava-wow/kuinameplates2`.
+        let json = r#"{"name":"kuinameplates2","owner":{"login":"kesava-wow"},
+            "description":" Nameplate addon ","html_url":"https://github.com/kesava-wow/kuinameplates2",
+            "default_branch":"master"}"#;
+        let info: Repo = serde_json::from_str(json).unwrap();
+        let html = r#"<p><a href="docs/config.md">Config</a> <img src="media/shot.png" alt="Shot"></p>"#;
+        let page = page_from(info, "kesava-wow", "kuinameplates2", html);
+        assert_eq!(page.summary, "Nameplate addon");
+        assert_eq!(page.authors, ["kesava-wow"]);
+        let plain = crate::page::doc::plain(&page.body);
+        assert_eq!(
+            plain,
+            [
+                "Config",
+                "img https://github.com/kesava-wow/kuinameplates2/raw/master/media/shot.png"
+            ]
+        );
+        let crate::page::Block::Text { spans, .. } = &page.body.blocks[0] else {
+            panic!()
+        };
+        assert_eq!(
+            spans[0].link.as_deref(),
+            Some("https://github.com/kesava-wow/kuinameplates2/blob/master/docs/config.md")
+        );
+    }
 
     #[test]
     fn parses_urls() {

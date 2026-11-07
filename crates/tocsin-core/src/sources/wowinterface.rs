@@ -2,7 +2,8 @@
 //!
 //! * `GET https://api.mmoui.com/v3/game/WOW/filedetails/{id}.json` answers an
 //!   array with one entry: `UIVersion`, `UIDownload`, `UIMD5`,
-//!   `UIFileInfoURL`, `UIDate` (epoch millis).
+//!   `UIFileInfoURL`, `UIDate` (epoch millis); for the addon page, also
+//!   `UIDescription` (BBCode) and the screenshots `UIIMGs` / `UIIMG_Thumbs`.
 //! * `GET https://api.mmoui.com/v3/game/WOW/filelist.json` is the whole
 //!   catalog, the only way to search: there is no search endpoint. See
 //!   [`Catalog`].
@@ -15,6 +16,7 @@ use serde::{Deserialize, Deserializer};
 use super::{Digest, Release, SourceError, SourceRef};
 use crate::addon::{Compat, Flavor};
 use crate::http::Http;
+use crate::page::{Page, Shot};
 use crate::search::{interface_codes, simplify, simplify_name, Hit, Popularity, PER_PROVIDER};
 use crate::version::Version;
 
@@ -30,14 +32,74 @@ struct FileDetails {
     info_url: Option<String>,
     #[serde(default, rename = "UIDate")]
     date: Option<u64>,
+    /// BBCode: the first paragraph is the library's summary line.
+    #[serde(default, rename = "UIDescription")]
+    description: Option<String>,
+}
+
+/// What an addon page needs of the same answer.
+#[derive(Debug, Deserialize)]
+struct FilePage {
+    #[serde(default, rename = "UIName")]
+    name: String,
+    #[serde(default, rename = "UIAuthorName")]
+    author: String,
+    #[serde(default, rename = "UIFileInfoURL")]
+    info_url: Option<String>,
+    #[serde(default, rename = "UIDescription")]
+    description: Option<String>,
+    /// Screenshots, full size, on `cdn-wow.mmoui.com`; `null` when none.
+    #[serde(default, rename = "UIIMGs")]
+    images: Option<Vec<String>>,
+    /// The same screenshots, at most 100px wide.
+    #[serde(default, rename = "UIIMG_Thumbs")]
+    thumbs: Option<Vec<String>>,
+}
+
+fn details_url(id: u64) -> String {
+    format!("https://api.mmoui.com/v3/game/WOW/filedetails/{id}.json")
+}
+
+/// The page of file `id`: the same `filedetails` answer as an update check,
+/// so usually from the run's cache.
+pub async fn page(http: &Http, id: u64) -> Result<Page, SourceError> {
+    let mut list: Vec<FilePage> = http.get_json(&details_url(id), &[]).await?;
+    let f = list.drain(..).next().ok_or(SourceError::NotFound)?;
+    Ok(page_from(f, id))
+}
+
+fn page_from(f: FilePage, id: u64) -> Page {
+    let thumbs = f.thumbs.unwrap_or_default();
+    let gallery = f
+        .images
+        .unwrap_or_default()
+        .iter()
+        .enumerate()
+        .filter_map(|(i, url)| Shot::new(url, thumbs.get(i).map(String::as_str), ""))
+        .collect();
+    Page {
+        name: f.name.trim().to_string(),
+        // The description's first paragraph is the summary: shown once.
+        summary: String::new(),
+        authors: Some(f.author.trim().to_string())
+            .filter(|a| !a.is_empty())
+            .into_iter()
+            .collect(),
+        url: f
+            .info_url
+            .filter(|u| u.starts_with("https://"))
+            .unwrap_or_else(|| format!("https://www.wowinterface.com/downloads/info{id}")),
+        gallery,
+        body: crate::page::from_bbcode(f.description.as_deref().unwrap_or_default()),
+    }
 }
 
 /// Fetch the current version of file `id`.
 pub async fn latest(http: &Http, id: u64) -> Result<Release, SourceError> {
-    let url = format!("https://api.mmoui.com/v3/game/WOW/filedetails/{id}.json");
-    let mut list: Vec<FileDetails> = http.get_json(&url, &[]).await?;
+    let mut list: Vec<FileDetails> = http.get_json(&details_url(id), &[]).await?;
     let f = list.drain(..).next().ok_or(SourceError::NoRelease)?;
     Ok(Release {
+        summary: f.description.as_deref().and_then(crate::page::bbcode_summary),
         version: Version::parse(&f.version),
         url: f
             .info_url
@@ -323,6 +385,41 @@ fn matching(entries: &[Entry], query: &str, flavor: Flavor, client_interface: Op
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_page_pairs_screenshots_with_their_thumbnails() {
+        let json = r#"[{"UID":"3826","UIName":"CTMod","UIAuthorName":"DahkCeles",
+            "UIFileInfoURL":"http://www.wowinterface.com/downloads/info3826-CTMod.html",
+            "UIDescription":"CTMod is a [b]suite[/b] of addons.\r\n\r\nModules:\r\n[list][*]CT_Core[*]CT_BarMod[/list]",
+            "UIIMGs":["https://cdn-wow.mmoui.com/preview/pvw20498.png","https://cdn-wow.mmoui.com/preview/pvw20499.png"],
+            "UIIMG_Thumbs":["https://cdn-wow.mmoui.com/preview/tiny/pvw20498.png"]}]"#;
+        let mut list: Vec<FilePage> = serde_json::from_str(json).unwrap();
+        let page = page_from(list.remove(0), 3826);
+        assert_eq!(page.authors, ["DahkCeles"]);
+        // The page goes to the browser: only https.
+        assert_eq!(page.url, "https://www.wowinterface.com/downloads/info3826");
+        assert_eq!(page.gallery.len(), 2);
+        assert_eq!(
+            page.gallery[0].thumb,
+            "https://cdn-wow.mmoui.com/preview/tiny/pvw20498.png"
+        );
+        assert_eq!(page.gallery[1].thumb, page.gallery[1].url);
+        assert_eq!(
+            crate::page::doc::plain(&page.body),
+            [
+                "CTMod is a suite of addons.",
+                "Modules:",
+                "* CT_Core",
+                "* CT_BarMod"
+            ]
+        );
+        assert_eq!(
+            crate::page::bbcode_summary("CTMod is a [b]suite[/b] of addons.\r\n\r\nModules:").as_deref(),
+            Some("CTMod is a suite of addons.")
+        );
+        let none: Vec<FilePage> = serde_json::from_str(r#"[{"UIIMGs":null,"UIIMG_Thumbs":null}]"#).unwrap();
+        assert!(page_from(none.into_iter().next().unwrap(), 1).gallery.is_empty());
+    }
 
     #[test]
     fn decodes_details() {

@@ -50,6 +50,20 @@ impl UpdateStatus {
         }
     }
 
+    /// The release the provider answered with, when it answered one.
+    pub fn release(&self) -> Option<&Release> {
+        match self {
+            Self::UpToDate(r) | Self::Outdated(r) | Self::Ahead(r) | Self::Unknown(r) => Some(r),
+            Self::Manual(_) | Self::NoSource | Self::Ignored | Self::Error(_) => None,
+        }
+    }
+
+    /// The one line about the addon its provider gave with the release, for
+    /// the library row (see [`Release::summary`]).
+    pub fn summary(&self) -> Option<&str> {
+        self.release()?.summary.as_deref()
+    }
+
     /// Whether the user has something to do about it: a page to visit, a
     /// source to declare, an error, or a version Tocsin cannot compare.
     /// What the "Needs attention" filter shows.
@@ -462,6 +476,7 @@ mod tests {
             provider: "GitHub".into(),
             interfaces: None,
             size: None,
+            summary: None,
         }
     }
 
@@ -518,6 +533,7 @@ mod tests {
             provider: String::new(),
             interfaces: None,
             size: None,
+            summary: None,
         };
         assert!(UpdateStatus::Manual("https://zygorguides.com/".into()).needs_attention());
         assert!(UpdateStatus::NoSource.needs_attention());
@@ -528,6 +544,15 @@ mod tests {
         assert!(!UpdateStatus::UpToDate(release.clone()).needs_attention());
         assert!(!UpdateStatus::Ahead(release).needs_attention());
         assert!(!UpdateStatus::Ignored.needs_attention());
+    }
+
+    #[test]
+    fn the_summary_comes_with_the_release() {
+        let mut r = release("1.0", None);
+        assert_eq!(UpdateStatus::UpToDate(r.clone()).summary(), None);
+        r.summary = Some("Computes damage.".into());
+        assert_eq!(UpdateStatus::Outdated(r).summary(), Some("Computes damage."));
+        assert_eq!(UpdateStatus::Error("x".into()).summary(), None);
     }
 
     #[tokio::test]

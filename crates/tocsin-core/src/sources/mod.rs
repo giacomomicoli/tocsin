@@ -214,6 +214,11 @@ pub struct Release {
     /// `fileLength`, a GitHub asset's `size`). A zip larger than the usual
     /// cap is accepted only up to this size (see [`crate::download::limit`]).
     pub size: Option<u64>,
+    /// One line about the addon, when the answer carries one anyway
+    /// (CurseForge's `summary`, Tukui's `small_desc`, the first paragraph of
+    /// a WoWInterface description): the library shows it under the name.
+    /// GitHub's release list has none, and no request is made for it.
+    pub summary: Option<String>,
 }
 
 impl Release {

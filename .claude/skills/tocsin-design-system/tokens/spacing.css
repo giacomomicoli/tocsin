@@ -42,8 +42,17 @@
   --icon-head: 32px;           /* space::ICON_HEAD */
   --icon-child: 24px;          /* space::ICON_CHILD */
   --h-lockup: 52px;            /* space::LOCKUP_H */
-  --window-w: 1120px;          /* space::WINDOW */
-  --window-h: 700px;
+  --window-w: 1280px;          /* space::WINDOW */
+  --window-h: 800px;
+  --window-min-w: 1000px;      /* space::WINDOW_MIN */
+  --window-min-h: 620px;
+
+  /* The addon page */
+  --w-read: 840px;             /* space::READ_W: reading column */
+  --gap-prose: 10px;           /* space::PROSE_GAP: between description blocks */
+  --h-shot: 360px;             /* space::SHOT_H: the gallery's shown screenshot */
+  --h-thumb: 54px;             /* space::THUMB_H: a gallery thumbnail */
+  --pad-thumb: 2px;            /* space::THUMB_PAD */
 
   --r-0: 0px;
   --r-1: 2px;  /* badges, rows */

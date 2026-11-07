@@ -217,6 +217,22 @@ If an addon you're installing brings along folders you already have (shared
 libraries like `Ace3`), Tocsin tells you which and asks before replacing
 them.
 
+### An addon's page
+
+Click an addon's name, in the library or in the search results, to read
+what its site says about it: the summary, the screenshots and the full
+description (CurseForge's page, the GitHub README, the WoWInterface or Tukui
+description). When several sites have a page for it, a button per site
+switches between them. **Back** returns to the list where you left it, and
+from a search result **Install** is right there.
+
+Tocsin shows pictures only from the addon sites and from `i.imgur.com`,
+where many CurseForge descriptions keep theirs. Any other picture is shown
+as a link you can open in your browser. A CurseForge page needs the
+CurseForge key. In the library, a short line under the name says what the
+addon is, when its site gave one with the update check (CurseForge,
+WoWInterface and Tukui; GitHub would need one more request per addon).
+
 ### More than one game
 
 Every game folder you add (Retail, Classic, …) appears in the sidebar, with
@@ -279,14 +295,17 @@ those win.
 ## Privacy
 
 - Tocsin has no account, no analytics, and no server of its own. It talks
-  only to the addon sites listed above, and to their picture servers for the
-  addon icons.
+  only to the addon sites listed above, to their picture servers for the
+  addon icons and pages, and to `i.imgur.com` for pictures on addon pages.
 - When you search, it sends what you typed to GitHub and CurseForge
   (WoWInterface and Tukui are searched in lists Tocsin downloads, so they
   never see your query). When it checks for updates, it asks each site about
   the addons that come from it. If you added a CurseForge key, it also asks
   CurseForge for the logos of your CurseForge addons, which tells CurseForge
-  which ones you have. Nothing else about you or your computer is sent.
+  which ones you have. Opening an addon's page asks its site for that page
+  and its pictures, so the site (and `i.imgur.com`, for pictures kept there)
+  sees which addon you looked at. Nothing else about you or your computer is
+  sent.
 - It writes only in your `AddOns` folder (the addons, plus three hidden
   folders for downloads in progress, previous versions and disabled addons),
   in its own settings file (`%APPDATA%\tocsin`) and cache

@@ -409,6 +409,7 @@ mod tests {
                 provider: "CurseForge".into(),
                 interfaces: None,
                 size: None,
+                summary: None,
             },
             zip: PathBuf::new(),
             sha256: String::new(),

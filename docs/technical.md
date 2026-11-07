@@ -149,7 +149,8 @@ in Settings.
 
 Tocsin reads your AddOns folder and talks to the public APIs of GitHub,
 CurseForge, Tukui and WoWInterface over HTTPS, plus the two image hosts of
-addon icons. That's the whole surface, and the code is written to keep it
+addon icons and the picture hosts of addon pages (listed below, `i.imgur.com`
+among them). That's the whole surface, and the code is written to keep it
 that way:
 
 - `#![forbid(unsafe_code)]` everywhere; TLS through rustls, no OpenSSL.
@@ -286,6 +287,40 @@ that way:
   which tells it the same as the id would: that you have this addon. WoWInterface
   thumbnails come from its catalog only when you already opened *Get
   addons*: the 6 MB catalog is never downloaded for icons.
+- An addon page (opened by clicking an addon's name) costs one or two
+  requests to the site it comes from, through the documented APIs only:
+  CurseForge `GET /v1/mods/{id}` (the same as its update check, usually
+  answered from the run's cache) and `GET /v1/mods/{id}/description`, with
+  your key; GitHub `GET /repos/{owner}/{repo}` and its README rendered as
+  HTML, with your token if any; WoWInterface's `filedetails` and Tukui's
+  `addon` answers, the same as their update checks. Each tells that site
+  which addon you looked at, nothing more. The answers are API JSON under
+  the same 1 MiB cap and same-host redirect rule as any other.
+- The description (HTML, BBCode or Markdown, all untrusted) is converted to
+  plain blocks of text by Tocsin's own code in a single pass, without
+  recursion and within fixed limits (800 blocks, 40 pictures, 256 KiB of
+  text). Nothing in it is run, styled or fetched as it is: only the tags
+  for structure are read, `<script>`, `<style>` and `<svg>` are skipped
+  whole, an embedded video becomes a link. Every link becomes an
+  `https://` address the browser rule below accepts (old `http://` links
+  are upgraded), or no link at all.
+- Pictures on an addon page (screenshots, images in the description) come
+  only from `media.forgecdn.net`, `cdn-wow.mmoui.com`, `storage.tukui.org`,
+  GitHub's `camo.githubusercontent.com` (its proxy for every outside picture
+  of a README), `github.com` / `raw.githubusercontent.com` and the two
+  `*-images.githubusercontent.com` hosts of pictures pasted into a README,
+  and `i.imgur.com`, the one host that is not a provider's: CurseForge
+  descriptions keep their pictures there more than anywhere else, and
+  fetching one tells Imgur your address and which picture you looked at.
+  Every redirect hop is checked against the same list. Any other picture is
+  shown as a link, never fetched. A file is read up to 8 MiB, two at a
+  time, only while its page is open; its format is taken from its first
+  bytes (PNG, JPEG, or GIF of which only the first frame); the decoder
+  refuses pictures over 4096 pixels a side or 48 MiB of memory and runs off
+  the interface thread; the picture is then scaled down to fit at most
+  1280×1600. One page holds at most 96 MiB of pictures; past that, a
+  picture is shown as a link. Nothing of a page is written to disk, and
+  closing it drops its pictures and stops their downloads.
 - Only `https://` links are ever handed to your browser.
 - Keys live in the OS credential store. They are read once per session, are
   never shown back in Settings (only whether one is set), and debug output

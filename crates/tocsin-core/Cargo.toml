@@ -29,8 +29,12 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 sha2 = "0.11"
 sha1_smol = "1"
 md5 = "0.8"
-# Addon icons in search: PNG and JPEG decoding only (no other codec, no rayon).
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Addon icons and page pictures: PNG and JPEG, plus GIF (first frame only)
+# for pictures in addon pages; no other codec, no rayon.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif"] }
+# Tukui's addon descriptions are Markdown; no default features (no HTML
+# renderer, no getopts): only the event parser.
+pulldown-cmark = { version = "0.13", default-features = false }
 # Free space on the volume before a large download or unpack (voice-over packs);
 # no default features: only `available_space`, pure Rust over rustix/windows-sys.
 fs4 = { version = "1", default-features = false }

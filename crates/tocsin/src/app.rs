@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use iced::futures::stream::{self, StreamExt};
+use iced::widget::scrollable::AbsoluteOffset;
 use iced::widget::{button, column, container, hover, image, progress_bar, row, space, text};
 use iced::{Alignment, Element, Fill, Padding, Subscription, Task, Theme};
 
@@ -32,6 +33,7 @@ use crate::theme::{self, Tone};
 // state without it being widened; views stay pure functions of `&self`.
 mod discover;
 mod library;
+mod page;
 mod settings;
 mod widgets;
 
@@ -43,6 +45,9 @@ pub enum Screen {
     /// Search for addons that are not installed.
     Discover,
     Settings,
+    /// One addon's page, opened from the Library or Get addons
+    /// ([`AddonView::back`]).
+    Addon,
 }
 
 /// Where the WoWInterface catalog stands: it is a few megabytes, fetched
@@ -118,6 +123,98 @@ fn cancel_icons(icons: &mut HashMap<String, IconState>, batch: IconBatch) {
         }
     }
 }
+
+/// The addon page on screen: which addon, the list it was opened from, and
+/// what its site said. Dropped when the page is left, its pictures and
+/// their downloads with it.
+#[derive(Debug)]
+struct AddonView {
+    /// The list to go back to, scrolled where it was.
+    back: Screen,
+    name: String,
+    /// The list icon, for the head.
+    icon: Option<String>,
+    /// Sources with a page, usable first; never empty.
+    sources: Vec<SourceRef>,
+    /// Index into `sources` of the one shown.
+    shown: usize,
+    /// The search result it was opened from: (search number, index), for
+    /// its Install button.
+    found: Option<(u64, usize)>,
+    /// Bumped per page asked for: an answer for another source is dropped.
+    seq: u64,
+    state: PageState,
+    /// Index into the gallery of the screenshot shown large.
+    shot: usize,
+    /// Decoded pictures by URL: gallery thumbnails apart, as they are
+    /// decoded smaller (a WoWInterface screenshot can be its own thumbnail).
+    thumbs: HashMap<String, PictureState>,
+    pictures: HashMap<String, PictureState>,
+    /// RGBA bytes of the pictures held, against [`PAGE_PICTURE_BYTES`].
+    picture_bytes: usize,
+    /// The picture downloads; dropping the view aborts them.
+    batch: Vec<iced::task::Handle>,
+}
+
+/// Where the page itself stands.
+#[derive(Debug)]
+enum PageState {
+    Loading,
+    Ready(Box<Shown>),
+    /// What to tell the user, and whether a CurseForge key would help.
+    Failed(String, bool),
+}
+
+/// A page and its text, ready to draw: the spans of each text block are
+/// made once per page, never per frame. The theme is switched in Settings,
+/// which closes the page, so its link color never goes stale.
+#[derive(Debug)]
+struct Shown {
+    page: tocsin_core::page::Page,
+    /// One entry per block of `page.body`; empty for non-text blocks.
+    spans: Vec<Vec<iced::widget::text::Span<'static, String, iced::Font>>>,
+}
+
+/// One picture of an addon page.
+#[derive(Debug, Clone)]
+enum PictureState {
+    Loading,
+    Ready(image::Handle),
+    /// Not fetched (another host), failed, or over the page's budget: the
+    /// page shows a link to it.
+    Unavailable,
+}
+
+/// Which box a page picture is decoded to fit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fit {
+    Thumb,
+    Full,
+}
+
+impl Fit {
+    /// The box in pixels: wide enough for the reading column on a 150%
+    /// display, a thumbnail twice its height.
+    fn bounds(self) -> (u32, u32) {
+        match self {
+            Fit::Thumb => (192, 108),
+            Fit::Full => (1280, 1600),
+        }
+    }
+}
+
+/// Most RGBA bytes of pictures one addon page holds: past it, a picture is
+/// shown as a link. A full-width 16:9 screenshot is about 4 MB.
+const PAGE_PICTURE_BYTES: usize = 96 * 1024 * 1024;
+
+/// Page picture downloads in flight at once: they are larger than icons.
+const PICTURE_CONCURRENCY: usize = 2;
+
+/// The scrollables whose position the addon page's Back restores, and the
+/// page's own.
+const LIBRARY_LIST: &str = "library-list";
+const DISCOVER_LIST: &str = "discover-list";
+const PAGE_SCROLL: &str = "addon-page";
 
 /// Decoded icons kept in memory, search and library together: 64x64 RGBA
 /// is 16 KiB each, so 300 is under 5 MiB. Past it, icons no longer shown
@@ -337,6 +434,13 @@ pub struct App {
     /// The library's icon downloads; cancelled when another installation
     /// is shown.
     library_batches: Vec<IconBatch>,
+    /// The addon page, while it is open.
+    addon: Option<AddonView>,
+    /// Bumped per page asked for, across views.
+    page_seq: u64,
+    /// Where the two lists were scrolled, for the addon page's Back.
+    library_offset: AbsoluteOffset,
+    discover_offset: AbsoluteOffset,
 }
 
 /// UI events.
@@ -454,6 +558,29 @@ pub enum Message {
     SettingsSaved(bool, Result<(), String>),
     /// Switch to the dark (`true`) or light theme.
     SetDark(bool),
+    // addon page
+    /// Open the page of the library addon in this folder.
+    OpenLibraryPage(String),
+    /// Open the page of a search result: (search number, result index).
+    OpenFoundPage(u64, usize),
+    /// Show the page of the view's source at this index.
+    PageSource(usize),
+    /// A page arrived: (page number, the page or what to tell the user and
+    /// whether a key would help).
+    PageLoaded(u64, Result<Box<tocsin_core::page::Page>, (String, bool)>),
+    /// A page picture arrived (or will not): (page number, box, URL, picture).
+    PictureLoaded(
+        u64,
+        Fit,
+        String,
+        Result<tocsin_core::page::media::Picture, String>,
+    ),
+    /// Show this gallery screenshot large.
+    PageShot(usize),
+    /// Back to the list the page was opened from.
+    PageBack,
+    /// A list was scrolled: where to put it back on PageBack.
+    ListScrolled(Screen, AbsoluteOffset),
 }
 
 impl App {
@@ -517,6 +644,10 @@ impl App {
             logos_asked: HashSet::new(),
             thumbs: HashMap::new(),
             library_batches: Vec::new(),
+            addon: None,
+            page_seq: 0,
+            library_offset: AbsoluteOffset::default(),
+            discover_offset: AbsoluteOffset::default(),
         };
 
         if start_on_settings {
@@ -568,6 +699,10 @@ impl App {
             Message::Show(screen) => {
                 self.screen = screen;
                 self.notice = None;
+                // Leaving the addon page by the nav: it is closed, not kept.
+                if screen != Screen::Addon {
+                    self.addon = None;
+                }
                 // Half-typed keys do not outlive the page.
                 if screen != Screen::Settings {
                     self.form.input.clear();
@@ -1001,6 +1136,7 @@ impl App {
                 }
                 self.discover.searching = false;
                 self.discover.outcome = outcome;
+                self.discover_offset = AbsoluteOffset::default();
                 self.load_icons()
             }
             Message::IconLoaded(url, result) => {
@@ -1228,13 +1364,38 @@ impl App {
                 Task::none()
             }
 
+            // ------------------------------------------------------- addon page
+            Message::OpenLibraryPage(folder) => self.open_library_page(folder),
+            Message::OpenFoundPage(seq, index) => self.open_found_page(seq, index),
+            Message::PageSource(i) => self.show_page_source(i),
+            Message::PageLoaded(seq, result) => self.page_loaded(seq, result),
+            Message::PictureLoaded(seq, fit, url, result) => {
+                self.picture_loaded(seq, fit, url, result);
+                Task::none()
+            }
+            Message::PageShot(i) => self.show_shot(i),
+            Message::PageBack => self.page_back(),
+            Message::ListScrolled(screen, offset) => {
+                match screen {
+                    Screen::Library => self.library_offset = offset,
+                    Screen::Discover => self.discover_offset = offset,
+                    _ => {}
+                }
+                Task::none()
+            }
+
             // --------------------------------------------------------- settings
             // Not while an operation runs: the new folder's scan would clean
             // a staging dir another install may be unpacking into.
             Message::SelectFolder(_) | Message::RemoveGameFolder(_) if self.busy => Task::none(),
             Message::SelectFolder(i) => {
                 if i < self.manifest.settings.game_folders.len() && i != self.active_folder {
+                    // A page of the other installation's addon: back to its list.
+                    if self.screen == Screen::Addon {
+                        self.screen = self.addon.take().map_or(Screen::Library, |v| v.back);
+                    }
                     self.active_folder = i;
+                    self.library_offset = AbsoluteOffset::default();
                     self.clear_library();
                     return self.update(Message::Scan);
                 }
@@ -1853,6 +2014,7 @@ impl App {
             Screen::Library => self.library_page(),
             Screen::Discover => self.discover(),
             Screen::Settings => self.settings(),
+            Screen::Addon => self.addon_page(),
         };
         // A pending "replace these folders?" question can come from search or
         // from a missing dependency's Install: shown on every page until
@@ -2054,7 +2216,7 @@ impl App {
         button(text(label).size(theme::size::CONTROL).font(theme::DISPLAY))
             .padding([7, 10])
             .width(Fill)
-            .style(theme::nav_item(self.screen == screen))
+            .style(theme::nav_item(self.nav_screen() == screen))
             .on_press(Message::Show(screen))
             .into()
     }

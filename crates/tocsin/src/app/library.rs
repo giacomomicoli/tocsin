@@ -1,14 +1,14 @@
 //! The library page: page head, filter chips, the addon list grouped by
 //! family, and the ghost rows for missing dependencies and removed families.
 
-use iced::widget::{column, container, row, text, text_input, Column};
+use iced::widget::{button, column, container, row, text, text_input, Column};
 use iced::{Alignment, Element, Fill, Length, Padding, Theme};
 
 use tocsin_core::addon::Compat;
 use tocsin_core::{InstalledAddon, SourceRef, UpdateStatus};
 
 use super::widgets::{self, badge, icon_slot, monogram};
-use super::{App, Counts, Filter, Message};
+use super::{App, Counts, Filter, Message, Screen, LIBRARY_LIST};
 use crate::theme::{self, size, space, Tone};
 
 impl App {
@@ -211,7 +211,11 @@ impl App {
         for (key, version) in &self.removed {
             col = col.push(self.removed_row(key, version));
         }
-        widgets::scroll(col).into()
+        // Its position is kept for the addon page's Back.
+        widgets::scroll(col)
+            .id(LIBRARY_LIST)
+            .on_scroll(|v| Message::ListScrolled(Screen::Library, v.absolute_offset()))
+            .into()
     }
 
     fn removed_row<'a>(&'a self, key: &'a str, version: &'a str) -> Element<'a, Message> {
@@ -440,6 +444,17 @@ impl App {
                 .style(meta_style),
         ]
         .spacing(2);
+        // What the addon is, when its site said it with the release. A
+        // family member shares its head's project: said once.
+        if let Some(summary) = status.and_then(UpdateStatus::summary).filter(|_| !child) {
+            name_col = name_col.push(
+                container(widgets::one_line(
+                    text(summary).size(size::META).style(meta_style),
+                ))
+                .width(Fill)
+                .clip(true),
+            );
+        }
         if let Some((d, tone)) = detail {
             name_col = name_col.push(text(d).size(size::META).style(theme::tone(tone)));
         }
@@ -493,14 +508,27 @@ impl App {
         if child {
             r = r.push(text("└").size(size::CHILD).style(theme::faint));
         }
+        // Icon and name open the addon's page, when a site has one.
+        let has_page = a.sources.iter().any(tocsin_core::page::has_page);
+        let named = button(
+            row![
+                icon_slot(
+                    monogram(&a.display_name),
+                    child,
+                    a.disabled,
+                    self.icon(self.library_icons.get(&a.folder).map(String::as_str)),
+                ),
+                name_col.width(Fill),
+            ]
+            .spacing(14)
+            .align_y(Alignment::Center),
+        )
+        .padding(Padding::ZERO)
+        .width(Fill)
+        .style(theme::name_link(a.disabled))
+        .on_press_maybe(has_page.then(|| Message::OpenLibraryPage(a.folder.clone())));
         let r = r
-            .push(icon_slot(
-                monogram(&a.display_name),
-                child,
-                a.disabled,
-                self.icon(self.library_icons.get(&a.folder).map(String::as_str)),
-            ))
-            .push(name_col.width(Fill))
+            .push(named)
             .push(versions)
             .push(
                 container(badge(badge_text, badge_tone))
