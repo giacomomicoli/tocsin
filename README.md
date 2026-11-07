@@ -152,6 +152,13 @@ version is loaded.
 When a site doesn't offer a direct download, *Open* takes you to the page
 instead.
 
+Large addons, such as the voice-over packs (300–500 MB of recorded
+dialogue), install like any other when the site says how big the file is,
+as CurseForge does. Installing one from search asks first ("Download
+453 MB?"); the bar at the bottom shows how far the download has come, and a
+dropped connection picks up where it stopped. Tocsin checks there is room on
+the disk first: count about twice the size while it installs.
+
 ### Turning addons off, or removing them
 
 **Disable** moves an addon out of the game's way without deleting it;

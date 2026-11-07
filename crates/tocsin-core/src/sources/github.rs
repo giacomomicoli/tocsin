@@ -34,6 +34,9 @@ struct GhAsset {
     browser_download_url: Option<String>,
     #[serde(default)]
     digest: Option<String>,
+    /// Size in bytes (see [`crate::download::limit`]).
+    #[serde(default)]
+    size: Option<u64>,
 }
 
 /// The asset the BigWigs packager (`release.sh`) uploads beside the zips of
@@ -293,6 +296,7 @@ fn release_of(chosen: Chosen, hint: Hint<'_>, manifest: Option<&PackagerManifest
         published_at: r.published_at,
         provider: String::new(),
         interfaces,
+        size: asset.and_then(|a| a.size).filter(|&n| n > 0),
     }
 }
 
@@ -643,6 +647,7 @@ mod tests {
                     name: (*a).into(),
                     browser_download_url: Some(format!("https://github.com/x/y/releases/download/{tag}/{a}")),
                     digest: None,
+                    size: None,
                 })
                 .collect(),
         }
@@ -746,6 +751,20 @@ mod tests {
     fn chosen(r: GhRelease) -> Chosen {
         let version = Version::parse(split_tag(&r.tag_name).map_or("", |(_, v)| v));
         Chosen { release: r, version }
+    }
+
+    #[test]
+    fn asset_size_comes_with_the_release() {
+        let json = r#"{"tag_name":"2.1.1","html_url":"https://github.com/x/y/releases/tag/2.1.1",
+          "assets":[{"name":"SpokenPlacesAudio-2.1.1.zip","size":348633232,
+            "browser_download_url":"https://github.com/x/y/releases/download/2.1.1/SpokenPlacesAudio-2.1.1.zip"}]}"#;
+        let r: GhRelease = serde_json::from_str(json).unwrap();
+        let got = release_of(chosen(r), hint("SpokenPlacesAudio", Flavor::Vanilla, None), None);
+        assert_eq!(got.size, Some(348_633_232));
+        // No asset picked: no size either.
+        let r = rel("2.1.1", &["notes.txt"]);
+        let got = release_of(chosen(r), hint("SpokenPlacesAudio", Flavor::Vanilla, None), None);
+        assert_eq!(got.size, None);
     }
 
     #[test]

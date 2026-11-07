@@ -37,6 +37,8 @@
   --w-search: 240px;           /* space::SEARCH_W */
   --w-sources: 480px;          /* space::SOURCES_W */
   --w-scrollbar: 6px;          /* space::SCROLLBAR_W */
+  --w-progress: 160px;         /* space::PROGRESS_W */
+  --h-progress: 6px;           /* space::PROGRESS_H */
   --icon-head: 32px;           /* space::ICON_HEAD */
   --icon-child: 24px;          /* space::ICON_CHILD */
   --h-lockup: 52px;            /* space::LOCKUP_H */

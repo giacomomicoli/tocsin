@@ -10,3 +10,6 @@ export function ConfirmBanner(props: ConfirmBannerProps): JSX.Element;
 /** Lit index advances every 250ms (Message::Tick). */
 export interface LoaderProps { lit?: number; count?: number }
 export function Loader(props: LoaderProps): JSX.Element;
+/** Download progress beside the notice; `value` 0–1, omitted while the size is unknown. */
+export interface ProgressProps { value?: number; label: string }
+export function Progress(props: ProgressProps): JSX.Element;

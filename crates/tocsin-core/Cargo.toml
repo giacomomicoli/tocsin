@@ -31,6 +31,9 @@ sha1_smol = "1"
 md5 = "0.8"
 # Addon icons in search: PNG and JPEG decoding only (no other codec, no rayon).
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Free space on the volume before a large download or unpack (voice-over packs);
+# no default features: only `available_space`, pure Rust over rustix/windows-sys.
+fs4 = { version = "1", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"

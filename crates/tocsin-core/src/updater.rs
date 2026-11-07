@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::addon::Flavor;
 use crate::archive;
-use crate::download::{self, DownloadError, Downloaded};
+use crate::download::{self, DownloadError, Downloaded, Expected, Progress};
 use crate::http::Http;
 use crate::install::{self, InstallError, Outcome, Request};
 use crate::sources::{fetch_latest, github::Hint, Credentials, Release, SourceError, SourceRef};
@@ -24,8 +24,9 @@ use crate::sources::{fetch_latest, github::Hint, Credentials, Release, SourceErr
 /// addon's display name, which can be long.
 const MAX_NAME_PART: usize = 64;
 
-/// A `.part` file older than this is a leftover: [`download::fetch`] never
-/// resumes one, and no download runs anywhere near this long.
+/// A `.part` file untouched for this long is a leftover: [`download::fetch`]
+/// never resumes one from an earlier run, and a running download writes to
+/// it every few seconds (it gives up after `http::DOWNLOAD_IDLE` without a byte).
 const STALE_PART: Duration = Duration::from_secs(60 * 60);
 
 /// Errors from an update.
@@ -114,8 +115,9 @@ pub async fn update(
     target: &Target<'_>,
     source: &SourceRef,
     release: &Release,
+    progress: &Progress,
 ) -> Result<Outcome, UpdateError> {
-    let downloaded = fetch_zip(http, target, source, release).await?;
+    let downloaded = fetch_zip(http, target, source, release, progress).await?;
     install_zip(target, source, release, downloaded.path, downloaded.sha256).await
 }
 
@@ -123,12 +125,29 @@ pub async fn update(
 /// result): ask `source` for its latest release for the target's flavor,
 /// download it and list its folders and which of them already exist. Follow
 /// with [`install_prepared`], or [`discard`] when the user cancels.
+///
+/// The same as [`latest_new`] then [`prepare_release`]; the GUI calls the
+/// two itself, to ask before downloading a large zip.
 pub async fn prepare_new(
     http: &Http,
     creds: &Credentials,
     target: &Target<'_>,
     source: &SourceRef,
+    progress: &Progress,
 ) -> Result<Prepared, UpdateError> {
+    let release = latest_new(http, creds, target, source).await?;
+    prepare_release(http, target, source, release, progress).await
+}
+
+/// The release a fresh install of `source` at `target` would download: its
+/// size ([`Release::size`]) says whether to ask first (see
+/// [`crate::download::is_large`]).
+pub async fn latest_new(
+    http: &Http,
+    creds: &Credentials,
+    target: &Target<'_>,
+    source: &SourceRef,
+) -> Result<Release, UpdateError> {
     // The requested name doubles as the folder to match release assets
     // against: a missing dependency (`RoutineData`) picks its own zip from a
     // release that ships two. A search result's display name rarely matches
@@ -139,8 +158,19 @@ pub async fn prepare_new(
         flavor: target.flavor,
         client_interface: target.client_interface,
     };
-    let release = fetch_latest(http, creds, source, hint).await?;
-    let Downloaded { path, sha256, .. } = fetch_zip(http, target, source, &release).await?;
+    Ok(fetch_latest(http, creds, source, hint).await?)
+}
+
+/// Download `release` (from [`latest_new`]) and list its folders and which
+/// of them already exist: the rest of [`prepare_new`].
+pub async fn prepare_release(
+    http: &Http,
+    target: &Target<'_>,
+    source: &SourceRef,
+    release: Release,
+    progress: &Progress,
+) -> Result<Prepared, UpdateError> {
+    let Downloaded { path, sha256, .. } = fetch_zip(http, target, source, &release, progress).await?;
 
     let addons_dir = target.addons_dir.to_path_buf();
     let zip = path.clone();
@@ -201,7 +231,7 @@ pub async fn install_new(
     target: &Target<'_>,
     source: &SourceRef,
 ) -> Result<Outcome, UpdateError> {
-    let prepared = prepare_new(http, creds, target, source).await?;
+    let prepared = prepare_new(http, creds, target, source, &Progress::new()).await?;
     install_prepared(target, source, &prepared).await
 }
 
@@ -269,6 +299,7 @@ async fn fetch_zip(
     target: &Target<'_>,
     source: &SourceRef,
     release: &Release,
+    progress: &Progress,
 ) -> Result<Downloaded, UpdateError> {
     let url = release.download.as_deref().ok_or(UpdateError::NoDownload)?;
     let file_name = format!(
@@ -277,7 +308,11 @@ async fn fetch_zip(
         safe(target.key),
         safe(release.version.as_str())
     );
-    Ok(download::fetch(http, url, &cache_dir(), &file_name, release.digest.as_ref()).await?)
+    let expected = Expected {
+        digest: release.digest.as_ref(),
+        size: release.size,
+    };
+    Ok(download::fetch(http, url, &cache_dir(), &file_name, expected, progress).await?)
 }
 
 /// Install `zip` on a blocking thread, then delete it.
@@ -373,6 +408,7 @@ mod tests {
                 digest: None,
                 provider: "CurseForge".into(),
                 interfaces: None,
+                size: None,
             },
             zip: PathBuf::new(),
             sha256: String::new(),

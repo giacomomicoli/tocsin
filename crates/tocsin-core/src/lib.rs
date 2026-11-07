@@ -14,6 +14,7 @@ pub mod checker;
 pub mod client;
 pub mod detect;
 pub mod discover;
+pub mod disk;
 pub mod download;
 pub mod family;
 pub mod game_icon;

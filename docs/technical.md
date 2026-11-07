@@ -131,7 +131,8 @@ in Settings.
   `~/.cache/tocsin/downloads/` (Linux). A zip is deleted as soon as it is
   installed (Rollback uses the backup folders, not the zip), and anything
   left there for more than a week is removed at start-up. Safe to delete at
-  any time.
+  any time. A large zip (a 450 MB voice-over pack) needs as much free space
+  there, and as much again in `AddOns` while it unpacks.
 - Library icons: `%LOCALAPPDATA%\tocsin\cache\icons\` (Windows),
   `~/.cache/tocsin/icons/` (Linux). A few KB each, fetched again after a
   week and removed at start-up once older than that. Safe to delete.
@@ -229,8 +230,29 @@ that way:
   addon folders, which is left out on extraction; a GitHub "Source code"
   zip is refused) and verified against the provider's
   digest when there is one. Zip-bomb limits count the bytes actually
-  unpacked, not the sizes the zip claims. Folders are swapped with renames,
-  undone if any step fails.
+  unpacked, not the sizes the zip claims (20 000 entries, 256 MiB per file,
+  2 GiB in all). Folders are swapped with renames, undone if any step fails.
+- A zip may be 256 MiB at most, counted as it streams to disk. Past that,
+  only when the provider declared the file's size before the download
+  (CurseForge's `fileLength`, a GitHub asset's `size`) — the voice-over packs
+  are 300–500 MB of audio. Such a zip is capped at exactly its declared size,
+  must reach it, and is refused outright above 2 GiB; an install from search
+  asks first ("Download 453 MB?"). Updates of an addon already installed do
+  not ask again.
+- Downloads have no fixed overall timeout: one stops after 30 seconds
+  without a byte, and within a deadline sized to the file (five minutes at
+  least, else enough for a 1 Mbit/s line: an hour for 450 MB). A connection
+  that drops is picked up where it stopped with a `Range` request, three
+  times at most, from the provider host that answered, and only for the same
+  file (`If-Range`, plus the size and the digest checks). The body is asked
+  for uncompressed, so offsets are the file's. A resume only appends to the
+  `.part` file the same download still holds open; a `.part` left by an
+  earlier run is deleted, never resumed (in the fallback cache under the
+  shared temp dir, someone else could have written it).
+- Before a download, and before unpacking, the free space of the disk it
+  goes to is checked (the file's size plus 64 MB, or as much again for a
+  small one); a disk that fills up anyway is reported as such, and the
+  partial file or staging folder is removed.
 - Installing something new from search never replaces an existing folder
   silently: when the zip ships folders you already have (a bundled `Ace3`
   or `LibStub`, say) Tocsin names them and asks first.

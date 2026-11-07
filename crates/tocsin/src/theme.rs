@@ -9,7 +9,7 @@
 use iced::border::Radius;
 use iced::gradient::{self, Gradient};
 use iced::theme::Palette;
-use iced::widget::{button, container, scrollable, text, text_input};
+use iced::widget::{button, container, progress_bar, scrollable, text, text_input};
 use iced::{color, font, Background, Border, Color, Degrees, Font, Shadow, Theme, Vector};
 
 // ───────────────────────────── fonts ─────────────────────────────
@@ -94,6 +94,8 @@ pub mod space {
     pub const LOCKUP_H: f32 = 52.0;
     /// The mock's `scrollbar-width: thin`, as wide as its 6px list gutter.
     pub const SCROLLBAR_W: f32 = 6.0;
+    pub const PROGRESS_W: f32 = 160.0; // download progress bar in the footer
+    pub const PROGRESS_H: f32 = 6.0;
 }
 const R1: f32 = 2.0; // badges, rows
 const R2: f32 = 3.0; // buttons, inputs
@@ -432,6 +434,17 @@ pub fn confirm(theme: &Theme) -> container::Style {
         background: Some(alpha(c, 0.08).into()),
         border: bd(alpha(c, 0.6), R1),
         ..Default::default()
+    }
+}
+/// A download's progress, in the footer beside its notice: the icon slot's
+/// sunken fill and gold hairline, filled with the accent gold. Sized
+/// `space::PROGRESS_W` × `space::PROGRESS_H`.
+pub fn progress(theme: &Theme) -> progress_bar::Style {
+    let t = tokens(theme);
+    progress_bar::Style {
+        background: t.surface_sunken.into(),
+        bar: t.accent.into(),
+        border: bd(t.border_frame, R1),
     }
 }
 /// 32/24px square before an addon name; put a monogram `text` or an `image` inside.

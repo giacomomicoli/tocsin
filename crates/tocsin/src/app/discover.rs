@@ -5,12 +5,13 @@ use iced::widget::{column, container, row, space, text, text_input, Column};
 use iced::{Alignment, Element, Fill, Length};
 
 use tocsin_core::addon::Compat;
+use tocsin_core::disk::human_size;
 use tocsin_core::search::{Found, Hit};
 use tocsin_core::secrets::Secret;
 use tocsin_core::SourceRef;
 
 use super::widgets::{self, badge, ellipsize, icon_slot, monogram};
-use super::{App, CatalogState, Message, PendingInstall, Screen};
+use super::{App, CatalogState, Message, PendingInstall, ResolvedInstall, Screen};
 use crate::theme::{self, size, Tone};
 
 impl App {
@@ -64,6 +65,9 @@ impl App {
             column![widgets::page_head("Get Addons", target, None), controls].spacing(theme::space::PAGE_GAP);
         if let Some(p) = &d.confirm {
             page = page.push(self.confirm_card(p));
+        }
+        if let Some(r) = &d.confirm_large {
+            page = page.push(self.large_card(r));
         }
 
         if d.searching {
@@ -157,6 +161,26 @@ impl App {
         widgets::confirm_banner(format!("Replace {what}?"), body, actions)
     }
 
+    /// "Download 453 MB?": a fresh install whose zip is far larger than most
+    /// (a voice-over pack), asked about before a byte of it is fetched.
+    /// Nothing is replaced, so the answer is the primary button, not danger.
+    pub(super) fn large_card<'a>(&'a self, r: &'a ResolvedInstall) -> Element<'a, Message> {
+        let size = human_size(r.release.size.unwrap_or_default());
+        let body = format!(
+            "{} from {} is a {size} zip, far larger than most addons. Installing it takes about \
+             twice that on disk for a moment; the zip is deleted afterwards.",
+            r.name,
+            r.source.provider(),
+        );
+        let actions = row![
+            widgets::ghost("Cancel", size::META, theme::space::BTN_SM).on_press(Message::CancelDownload),
+            widgets::primary("Download", size::META, theme::space::BTN_SM)
+                .on_press_maybe((!self.busy).then_some(Message::ConfirmDownload)),
+        ]
+        .spacing(10);
+        widgets::confirm_banner(format!("Download {size}?"), body, actions)
+    }
+
     /// One line on the WoWInterface catalog: loading, ready, or failed with a
     /// retry.
     fn catalog_status(&self) -> Element<'_, Message> {
@@ -228,8 +252,7 @@ impl App {
                     .style(theme::muted),
             );
         }
-        let can_install =
-            !installed && !self.busy && self.discover.confirm.is_none() && self.active_dir().is_some();
+        let can_install = !installed && !self.busy && !self.asking() && self.active_dir().is_some();
         for h in &f.hits {
             let open = widgets::ghost("Open", size::META, theme::space::BTN_SM).on_press_maybe(
                 h.url

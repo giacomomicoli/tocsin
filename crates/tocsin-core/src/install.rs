@@ -76,6 +76,9 @@ pub enum InstallError {
     /// The folder no longer holds only addon folders (see [`crate::wrapper`]).
     #[error("{0} no longer holds only addon folders; nothing was moved")]
     NotWrapper(String),
+    /// Not enough room to unpack the zip, found before unpacking.
+    #[error(transparent)]
+    NoSpace(#[from] crate::disk::NoSpace),
     /// Disk failure.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -307,6 +310,9 @@ pub fn install(addons_dir: &Path, zip: &Path, req: &Request<'_>) -> Result<Outco
         return Err(InstallError::WrongFlavor(req.flavor.label()));
     }
 
+    // A voice-over pack unpacks to 450 MB: refuse before half of it is
+    // written. The folders then move by rename, which takes no more room.
+    crate::disk::ensure_space(addons_dir, manifest.unpacked)?;
     let new_folders: Vec<String> = manifest.folders.keys().cloned().collect();
     let staging_root = own_dir(addons_dir, STAGING_DIR)?;
     let swap = Swap::plan(addons_dir, new_folders, &manifest.folders, req)?;

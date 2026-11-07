@@ -152,6 +152,10 @@ struct File {
     /// `[{ "value": "…", "algo": 1 }]`, algo 1 = sha1, 2 = md5.
     #[serde(default)]
     hashes: Vec<Hash>,
+    /// Size of the zip in bytes: what lets a voice-over pack past the usual
+    /// download cap (see [`crate::download::limit`]).
+    #[serde(default, rename = "fileLength")]
+    file_length: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -438,6 +442,7 @@ fn release_of(m: Mod, id: u64, flavor: Flavor) -> Result<Release, SourceError> {
         digest,
         provider: String::new(),
         interfaces: None,
+        size: file.file_length.filter(|&n| n > 0),
     })
 }
 
@@ -453,6 +458,26 @@ mod tests {
         let e: Envelope = serde_json::from_str(json).unwrap();
         let stable = e.data.latest_files.iter().filter(|f| f.release_type == 1).count();
         assert_eq!(stable, 1);
+    }
+
+    #[test]
+    fn declared_size_comes_with_the_release() {
+        // Spoken Audio: Readables, a 453 MB voice-over pack: its size is what
+        // lets the download past the usual cap.
+        let json = r#"{"data":{"id":1385412,"gameId":1,
+          "links":{"websiteUrl":"https://www.curseforge.com/wow/addons/spoken-audio-readables"},
+          "latestFiles":[{"displayName":"SpokenReadablesAudio-2.3.1","fileDate":"2026-11-02T23:40:00Z",
+            "releaseType":1,"fileLength":475482457,"gameVersions":["1.15.8"],
+            "downloadUrl":"https://edge.forgecdn.net/files/1/2/SpokenReadablesAudio-2.3.1.zip",
+            "hashes":[{"value":"0123456789abcdef0123456789abcdef01234567","algo":1}]}]}}"#;
+        let e: Envelope = serde_json::from_str(json).unwrap();
+        let r = release_of(e.data, 1385412, Flavor::Vanilla).unwrap();
+        assert_eq!(r.size, Some(475_482_457));
+        assert!(matches!(r.digest, Some(crate::sources::Digest::Sha1(_))));
+        // Absent or zero: no declared size, the usual cap applies.
+        let json = r#"{"data":{"id":1,"latestFiles":[{"displayName":"v1","releaseType":1,"fileLength":0}]}}"#;
+        let e: Envelope = serde_json::from_str(json).unwrap();
+        assert_eq!(release_of(e.data, 1, Flavor::Retail).unwrap().size, None);
     }
 
     #[test]
@@ -672,6 +697,7 @@ mod tests {
             download_url: None,
             game_versions: vec!["12.1.5".into(), "Retail".into()],
             hashes: vec![],
+            file_length: None,
         };
         let era = File {
             game_versions: vec!["1.15.9".into()],

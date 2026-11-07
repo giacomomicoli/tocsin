@@ -7,16 +7,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use iced::futures::stream::{self, StreamExt};
-use iced::widget::{button, column, container, hover, image, row, space, text};
+use iced::widget::{button, column, container, hover, image, progress_bar, row, space, text};
 use iced::{Alignment, Element, Fill, Padding, Subscription, Task, Theme};
 
 use tocsin_core::addon::Flavor;
+use tocsin_core::disk::human_size;
+use tocsin_core::download::{self, Progress};
 use tocsin_core::family::{self, Family};
 use tocsin_core::http::{self, Http};
 use tocsin_core::search::{self, Found, Installed};
 use tocsin_core::secrets::{self, KeyStatus, Secret};
 use tocsin_core::sources::wowinterface::Catalog;
-use tocsin_core::sources::{curseforge, Credentials};
+use tocsin_core::sources::{curseforge, Credentials, Release};
 use tocsin_core::updater::{self, Prepared, Target};
 use tocsin_core::{checker, detect, InstalledAddon, Manifest, SourceRef, UpdateReport, UpdateStatus};
 use tocsin_core::{game_icon, icons};
@@ -81,6 +83,10 @@ struct Discover {
     /// A downloaded result that would replace folders already on disk,
     /// waiting for the user to say "Replace" or "Cancel".
     confirm: Option<Box<PendingInstall>>,
+    /// A fresh install whose zip is larger than most (a voice-over pack),
+    /// waiting for the user to say "Download" or "Cancel" before a byte of
+    /// it is fetched.
+    confirm_large: Option<Box<ResolvedInstall>>,
     /// The icon downloads of the shown results, cancelled as soon as a newer
     /// search replaces them.
     icon_batch: Option<IconBatch>,
@@ -135,6 +141,45 @@ pub struct PendingInstall {
     /// head's own zip (CurseForge and WoWInterface ignore which folder was
     /// asked for) is not reinstalled in its place.
     needs: Option<String>,
+}
+
+/// A fresh install whose release is known but not downloaded yet: what
+/// [`Message::Resolved`] carries, and what waits while the user is asked
+/// about a large zip.
+#[derive(Debug, Clone)]
+pub struct ResolvedInstall {
+    source: SourceRef,
+    name: String,
+    dir: PathBuf,
+    flavor: Flavor,
+    client_interface: Option<u32>,
+    release: Release,
+    /// See [`PendingInstall::needs`].
+    needs: Option<String>,
+}
+
+/// The download running now, for the footer's progress bar. `progress` is
+/// shared with the download; the rest is copied from it on each tick, so
+/// the view reads only state that `update` changed.
+#[derive(Debug, Clone)]
+struct Transfer {
+    name: String,
+    progress: Progress,
+    fraction: Option<f32>,
+    label: String,
+    finished: bool,
+}
+
+impl Transfer {
+    fn new(name: &str, progress: &Progress) -> Self {
+        Self {
+            name: name.to_string(),
+            progress: progress.clone(),
+            fraction: None,
+            label: String::new(),
+            finished: false,
+        }
+    }
 }
 
 /// A key as the user types it. `Message` derives `Debug`; this keeps any
@@ -242,6 +287,8 @@ pub struct App {
     confirm_remove_folder: Option<PathBuf>,
     /// Folder currently being updated, for the row's spinner text.
     installing: Option<String>,
+    /// The download running, if any, for the footer's progress bar.
+    transfer: Option<Transfer>,
     statuses: BTreeMap<String, UpdateStatus>,
     counts: Counts,
     /// Bumped per scan: a check answering for an older library is dropped.
@@ -363,6 +410,14 @@ pub enum Message {
     /// Show only results a site confirms for this game client (`true`), or
     /// everything found.
     DiscoverStrict(bool),
+    /// The release of a fresh install is known: (name, result). Downloaded
+    /// right away unless its zip is large; then the user is asked first. A
+    /// failure carries the source when it has nothing to download at all.
+    Resolved(String, Result<Box<ResolvedInstall>, (String, Option<SourceRef>)>),
+    /// The user accepts downloading the large zip of the pending install.
+    ConfirmDownload,
+    /// The user drops the pending large download.
+    CancelDownload,
     /// A search result is downloaded: (name, result). Installed right away
     /// unless it would replace folders already there. A failure carries the
     /// source when it has nothing to download at all.
@@ -436,6 +491,7 @@ impl App {
             confirm_move: None,
             confirm_remove_folder: None,
             installing: None,
+            transfer: None,
             statuses: BTreeMap::new(),
             counts: Counts::default(),
             lib_gen: 0,
@@ -496,7 +552,11 @@ impl App {
     /// app wakes up for nothing.
     pub fn subscription(&self) -> Subscription<Message> {
         let d = &self.discover;
-        if d.catalog == CatalogState::Loading || d.searching || d.installing.is_some() {
+        if d.catalog == CatalogState::Loading
+            || d.searching
+            || d.installing.is_some()
+            || self.transfer.is_some()
+        {
             iced::time::every(Duration::from_millis(250)).map(|_| Message::Tick)
         } else {
             Subscription::none()
@@ -703,7 +763,11 @@ impl App {
                 let key = folder.clone();
                 self.busy = true;
                 self.installing = Some(folder.clone());
-                self.notice = Some((false, format!("Downloading {}…", addon.display_name)));
+                // An addon already installed is updated without asking, large
+                // or not; its size is said, since a voice-over pack takes a while.
+                self.notice = Some((false, downloading(&addon.display_name, None, &release)));
+                let progress = Progress::new();
+                self.transfer = Some(Transfer::new(&addon.display_name, &progress));
                 let http = self.http.clone();
                 let (flavor, client_interface) = (self.flavor, self.client_interface);
                 let replacing = addon.installed.as_ref().map(|v| v.as_str().to_string());
@@ -717,7 +781,7 @@ impl App {
                             client_interface,
                             replacing_version: replacing.as_deref(),
                         };
-                        tocsin_core::updater::update(&http, &target, &source, &release)
+                        tocsin_core::updater::update(&http, &target, &source, &release, &progress)
                             .await
                             .map(|o| o.installed)
                             .map_err(|e| e.to_string())
@@ -735,7 +799,7 @@ impl App {
                 let Some(source) = head_addon.source().cloned() else {
                     return Task::none();
                 };
-                if self.busy || self.discover.confirm.is_some() {
+                if self.busy || self.asking() {
                     return Task::none();
                 }
                 let Some(creds) = self.creds.clone() else {
@@ -745,9 +809,9 @@ impl App {
                 self.busy = true;
                 self.installing = Some(dep.clone());
                 self.notice = Some((false, format!("Looking for {dep}…")));
-                // Same two steps as a search install: the zip may replace
-                // folders already on disk, and the user is asked first.
-                self.prepare(creds, dir, source, dep.clone(), Some(dep))
+                // Same steps as a search install: a large zip, or one that
+                // replaces folders already on disk, is asked about first.
+                self.resolve(creds, dir, source, dep.clone(), Some(dep))
             }
             Message::Disable(ref folder) | Message::Enable(ref folder) | Message::Remove(ref folder) => {
                 let folder = folder.clone();
@@ -997,13 +1061,23 @@ impl App {
             }
             Message::Tick => {
                 self.tick = self.tick.wrapping_add(1);
+                if let Some(t) = self.transfer.as_mut() {
+                    let finished = t.progress.finished();
+                    if finished && !t.finished {
+                        // The zip is on disk and verified: unpacking follows.
+                        self.notice = Some((false, format!("Installing {}…", t.name)));
+                    }
+                    t.finished = finished;
+                    t.fraction = t.progress.fraction();
+                    t.label = t.progress.label();
+                }
                 Task::none()
             }
             Message::InstallFrom(source, name) => {
                 let Some(dir) = self.active_dir().cloned() else {
                     return Task::none();
                 };
-                if self.busy || self.discover.confirm.is_some() {
+                if self.busy || self.asking() {
                     return Task::none();
                 }
                 let Some(creds) = self.creds.clone() else {
@@ -1013,10 +1087,42 @@ impl App {
                 self.busy = true;
                 self.installing = Some(name.clone());
                 self.discover.installing = Some(source.clone());
-                self.notice = Some((false, format!("Downloading {name} from {}…", source.provider())));
-                self.prepare(creds, dir, source, name, None)
+                self.notice = Some((false, format!("Looking for {name} on {}…", source.provider())));
+                self.resolve(creds, dir, source, name, None)
+            }
+            Message::Resolved(name, Ok(resolved)) => {
+                if !download::is_large(resolved.release.size) {
+                    return self.download_new(*resolved);
+                }
+                // A voice-over pack is hundreds of MB: say so before fetching it.
+                self.busy = false;
+                self.installing = None;
+                self.discover.installing = None;
+                self.notice = Some((false, format!("{name} is a large download.")));
+                self.discover.confirm_large = Some(resolved);
+                Task::none()
+            }
+            Message::Resolved(name, Err((e, site_only))) => {
+                // As for `Prepared`: a source with nothing to download shows
+                // "Site only" from now on.
+                self.discover.site_only.extend(site_only);
+                self.update(Message::Installed(name, Err(e)))
+            }
+            Message::ConfirmDownload => match self.discover.confirm_large.take() {
+                Some(resolved) if !self.busy => self.download_new(*resolved),
+                other => {
+                    self.discover.confirm_large = other;
+                    Task::none()
+                }
+            },
+            Message::CancelDownload => {
+                if let Some(r) = self.discover.confirm_large.take() {
+                    self.notice = Some((false, format!("Did not download {}.", r.name)));
+                }
+                Task::none()
             }
             Message::Prepared(name, Ok(pending)) => {
+                self.transfer = None;
                 if let Some(needed) = pending.needs.as_deref() {
                     if !pending.prepared.ships(needed) {
                         // The provider served the head's zip again: installing
@@ -1055,6 +1161,7 @@ impl App {
                 Task::none()
             }
             Message::Prepared(name, Err((e, site_only))) => {
+                self.transfer = None;
                 // Its row says "Site only" from now on, instead of an Install
                 // that can only fail again.
                 self.discover.site_only.extend(site_only);
@@ -1079,6 +1186,7 @@ impl App {
             }
             Message::Installed(folder, result) => {
                 self.busy = false;
+                self.transfer = None;
                 self.installing = None;
                 self.discover.installing = None;
                 match result {
@@ -1304,9 +1412,17 @@ impl App {
         )
     }
 
-    /// Download and inspect `source` for a fresh install (a search result, or
-    /// a missing dependency when `needs` names it), answering `Prepared`.
-    fn prepare(
+    /// Whether a confirm banner about a fresh install is waiting for an
+    /// answer: no other install starts meanwhile.
+    fn asking(&self) -> bool {
+        self.discover.confirm.is_some() || self.discover.confirm_large.is_some()
+    }
+
+    /// Ask `source` which release a fresh install (a search result, or a
+    /// missing dependency when `needs` names it) would download, answering
+    /// `Resolved`. Nothing is downloaded yet: a large zip is asked about
+    /// first (see [`download::is_large`]).
+    fn resolve(
         &self,
         creds: Arc<Credentials>,
         dir: PathBuf,
@@ -1329,23 +1445,65 @@ impl App {
                     client_interface,
                     replacing_version: None,
                 };
-                let prepared = updater::prepare_new(&http, &creds, &target, &source).await;
-                let site_only = matches!(&prepared, Err(e) if e.is_site_only()).then(|| source.clone());
-                prepared
-                    .map(|prepared| {
-                        Box::new(PendingInstall {
+                let release = updater::latest_new(&http, &creds, &target, &source).await;
+                let site_only = matches!(&release, Err(e) if e.is_site_only()).then(|| source.clone());
+                release
+                    .map(|release| {
+                        Box::new(ResolvedInstall {
                             source,
                             name,
                             dir,
                             flavor,
                             client_interface,
-                            prepared,
+                            release,
                             needs,
                         })
                     })
                     .map_err(|e| (e.to_string(), site_only))
             },
-            move |r| Message::Prepared(done.clone(), r),
+            move |r| Message::Resolved(done.clone(), r),
+        )
+    }
+
+    /// Download and inspect a resolved fresh install, answering `Prepared`.
+    fn download_new(&mut self, r: ResolvedInstall) -> Task<Message> {
+        self.busy = true;
+        self.installing = Some(r.name.clone());
+        if r.needs.is_none() {
+            self.discover.installing = Some(r.source.clone());
+        }
+        self.notice = Some((false, downloading(&r.name, Some(&r.source), &r.release)));
+        let progress = Progress::new();
+        self.transfer = Some(Transfer::new(&r.name, &progress));
+        let http = self.http.clone();
+        let done = r.name.clone();
+        Task::perform(
+            async move {
+                let target = Target {
+                    addons_dir: &r.dir,
+                    key: &r.name,
+                    flavor: r.flavor,
+                    client_interface: r.client_interface,
+                    replacing_version: None,
+                };
+                let prepared =
+                    updater::prepare_release(&http, &target, &r.source, r.release.clone(), &progress).await;
+                let site_only = matches!(&prepared, Err(e) if e.is_site_only()).then(|| r.source.clone());
+                prepared
+                    .map(|prepared| {
+                        Box::new(PendingInstall {
+                            source: r.source,
+                            name: r.name,
+                            dir: r.dir,
+                            flavor: r.flavor,
+                            client_interface: r.client_interface,
+                            prepared,
+                            needs: r.needs,
+                        })
+                    })
+                    .map_err(|e| (e.to_string(), site_only))
+            },
+            move |result| Message::Prepared(done.clone(), result),
         )
     }
 
@@ -1705,6 +1863,13 @@ impl App {
                 .into(),
             _ => page,
         };
+        // So can "download this large zip?".
+        let page: Element<'_, Message> = match &self.discover.confirm_large {
+            Some(r) if self.screen != Screen::Discover => column![self.large_card(r), page]
+                .spacing(theme::space::PAGE_GAP)
+                .into(),
+            _ => page,
+        };
         // The sidebar's "×" can be pressed from any page: ask on that page.
         let page: Element<'_, Message> = match &self.confirm_remove_folder {
             Some(dir) => column![self.remove_folder_banner(dir), page]
@@ -1894,27 +2059,61 @@ impl App {
             .into()
     }
 
+    /// The notice line, with the running download's progress on its right.
+    /// The progress stays when the notice is dismissed.
     fn footer(&self) -> Element<'_, Message> {
+        let progress = self.transfer.as_ref().map(|t| self.progress(t));
         let Some((is_error, msg)) = &self.notice else {
-            return container(text("")).height(0).into();
+            return match progress {
+                Some(p) => row![space::horizontal(), p].into(),
+                None => container(text("")).height(0).into(),
+            };
         };
         let style: fn(&Theme) -> text::Style = if *is_error {
             |t| theme::tone(Tone::Error)(t)
         } else {
             theme::muted
         };
-        row![
-            text(msg).size(theme::size::CONTROL).style(style).width(Fill),
-            widgets::ghost("×", theme::size::CONTROL, [2, 8]).on_press(Message::DismissNotice),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center)
-        .into()
+        row![text(msg).size(theme::size::CONTROL).style(style).width(Fill)]
+            .push(progress)
+            .push(widgets::ghost("×", theme::size::CONTROL, [2, 8]).on_press(Message::DismissNotice))
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .into()
+    }
+
+    /// "113 MB of 453 MB" beside a bar, or the bytes alone while the size is
+    /// unknown.
+    fn progress<'a>(&self, t: &'a Transfer) -> Element<'a, Message> {
+        let label = text(&t.label)
+            .size(theme::size::META)
+            .font(theme::MONO)
+            .style(theme::muted);
+        let bar = t.fraction.map(|f| {
+            progress_bar(0.0..=1.0, f)
+                .length(theme::space::PROGRESS_W)
+                .girth(theme::space::PROGRESS_H)
+                .style(theme::progress)
+        });
+        row![label].push(bar).spacing(8).align_y(Alignment::Center).into()
     }
 }
 
 /// Shown when an action needs the API keys before they have been read.
 const KEYS_LOADING: &str = "Still reading your API keys; try again in a moment.";
+
+/// "Downloading Spoken Audio: Readables from CurseForge · 453 MB…", the
+/// size when the provider says it.
+fn downloading(name: &str, source: Option<&SourceRef>, release: &Release) -> String {
+    let from = source
+        .map(|s| format!(" from {}", s.provider()))
+        .unwrap_or_default();
+    let size = release
+        .size
+        .map(|n| format!(" · {}", human_size(n)))
+        .unwrap_or_default();
+    format!("Downloading {name}{from}{size}…")
+}
 
 /// Write `keys` to the OS credential store on a blocking thread; an empty
 /// value deletes the entry.
