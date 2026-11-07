@@ -22,6 +22,18 @@ async fn main() -> anyhow::Result<()> {
 
     let lib = Library::load(&dir, &manifest)?;
     println!("{} addons in {}\n", lib.addons.len(), dir.display());
+    for w in &lib.wrapped {
+        println!(
+            "!! {} holds addons one level too deep: {} (would replace: {})",
+            w.folder,
+            w.addons.join(", "),
+            if w.replaces.is_empty() {
+                "nothing".to_string()
+            } else {
+                w.replaces.join(", ")
+            }
+        );
+    }
 
     for a in &lib.addons {
         for i in &a.issues {

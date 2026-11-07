@@ -68,10 +68,20 @@ ships".
   more than declared) and in total, and reads each `.toc` through a 1 MiB
   limit.
 - Determine the **top-level folders**. A valid WoW zip has only folders at
-  the root, each containing `<Folder>/<Folder>*.toc`. A zip with a single
-  wrapper folder (`Addon-main/Addon/Addon.toc`, the GitHub source zip) is
-  rejected with a clear message rather than guessed at: we never install
-  what the author did not package.
+  the root, each containing `<Folder>/<Folder>*.toc`. A single folder with
+  no `.toc` of its own is looked into, one level and no more
+  (`crate::wrapper`): when every folder inside is an addon folder and the
+  rest is docs, it is a **wrapper** (`Details-Details.2026…/Details/…`) and
+  the folders inside are installed as if they were at the root. When it
+  looks like a repository (a `.toc` directly inside, `.pkgmeta`, `.git…`,
+  loose code: the GitHub source zip) it is rejected with a clear message
+  rather than guessed at: we never install what the author did not
+  package. A mix of addon folders and others is rejected naming both.
+- The same rule finds a wrapper already in `AddOns` (a zip unpacked by
+  hand into a folder of its own). The library flags it, and *Move up*
+  (`install::move_up`) runs the swap of step 4 with that folder in place of
+  the staging dir: same record, same backup, same undo; the folder is
+  removed only when it is left empty.
 - Each top-level folder's `.toc` is parsed with the same parser as the scan,
   for the client flavor. If none of them supports the client flavor
   (`Compat::OtherFlavor` everywhere), stop: the file is for another game.

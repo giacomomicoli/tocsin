@@ -52,7 +52,9 @@ Tocsin knows. If it doesn't, you can point Tocsin at one yourself (see
 *Overriding the guess* in [docs/technical.md](docs/technical.md)).
 
 Addons that come in several folders, like *Deadly Boss Mods* and its modules,
-are shown together as one entry so the list stays short.
+are shown together as one entry so the list stays short. A module that
+doesn't say its own version (the plugins of *Details!*) shows the version
+and the status of the addon it ships with.
 
 Tocsin only ever touches your addon folders. Your settings, keybinds and
 profiles (the `WTF` folder) are never modified.
@@ -126,7 +128,15 @@ Each addon gets a badge:
 
 A red note under a name means something looks wrong on disk, for example a
 folder with the wrong name (it happens when you unzip a GitHub download as
-it is). A grey "built for 12.1.0, game is 12.1.5" is the same *out of date*
+it is).
+
+A row marked **Not loaded** is a folder that holds addons one level too
+deep: Windows' *Extract all* unpacks `Details-Details.2026….zip` into a
+folder of that name, and copied into `AddOns` like that, the game sees
+none of the addons inside. **Move up** puts them where the game looks. If
+some of them are already installed, Tocsin asks first and keeps the old
+copies, so *Rollback* brings them back. Installing a zip made that way
+works as usual: Tocsin takes the addon folders out of the extra one. A grey "built for 12.1.0, game is 12.1.5" is the same *out of date*
 warning the game shows, and is usually harmless.
 
 ### Updating, and going back
