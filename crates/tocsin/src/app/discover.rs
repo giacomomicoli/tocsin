@@ -213,19 +213,28 @@ impl App {
 
     /// Three squares lit in turn, then `label`. Driven by `tick`, which only
     /// advances while [`App::subscription`] sees something loading.
-    pub(super) fn loader<'a>(&self, label: &'a str) -> Element<'a, Message> {
+    pub(super) fn loader<'a>(&self, label: impl text::IntoFragment<'a>) -> Element<'a, Message> {
+        row![
+            self.loader_dots(),
+            text(label).size(size::META).style(theme::muted)
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center)
+        .into()
+    }
+
+    /// The loader's three diamonds alone, for the footer's busy line.
+    pub(super) fn loader_dots<'a>(&self) -> Element<'a, Message> {
         let lit = self.tick % 3;
-        let dots = (0..3).fold(row![].spacing(6), |r, i| {
-            r.push(
-                container(space::horizontal().width(0))
-                    .width(Length::Fixed(6.0))
-                    .height(Length::Fixed(6.0))
-                    .style(theme::loader_dot(i == lit)),
-            )
-        });
-        row![dots, text(label).size(size::META).style(theme::muted)]
-            .spacing(10)
-            .align_y(Alignment::Center)
+        (0..3)
+            .fold(row![].spacing(6), |r, i| {
+                r.push(
+                    container(space::horizontal().width(0))
+                        .width(Length::Fixed(6.0))
+                        .height(Length::Fixed(6.0))
+                        .style(theme::loader_dot(i == lit)),
+                )
+            })
             .into()
     }
 
