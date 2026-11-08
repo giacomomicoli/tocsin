@@ -51,6 +51,7 @@
   --w-read: 840px;             /* space::READ_W: reading column */
   --gap-prose: 10px;           /* space::PROSE_GAP: between description blocks */
   --h-shot: 360px;             /* space::SHOT_H: the gallery's shown screenshot */
+  --h-picture: 120px;          /* space::PICTURE_H: a description picture's place while it loads, size undeclared */
   --h-thumb: 54px;             /* space::THUMB_H: a gallery thumbnail */
   --pad-thumb: 2px;            /* space::THUMB_PAD */
 
