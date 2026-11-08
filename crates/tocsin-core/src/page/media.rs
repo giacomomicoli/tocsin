@@ -152,6 +152,25 @@ pub fn decode(bytes: &[u8], max_width: u32, max_height: u32) -> Result<Picture, 
     })
 }
 
+/// The height of a `width` × `height` picture once [`decode`] has fitted it
+/// to `max_width` × `max_height` and the page has scaled it down (never up)
+/// to a column `column` wide: what the page keeps for a picture whose
+/// description declares its size, so that nothing below it moves when it
+/// arrives. At least 1.
+pub fn drawn_height(width: u32, height: u32, max_width: u32, max_height: u32, column: u32) -> u32 {
+    let (w, h) = (f64::from(width.max(1)), f64::from(height.max(1)));
+    let scale = [
+        1.0,
+        f64::from(max_width.max(1)) / w,
+        f64::from(max_height.max(1)) / h,
+        f64::from(column.max(1)) / w,
+    ]
+    .into_iter()
+    .fold(f64::INFINITY, f64::min);
+    // At most `height`, which is a u32: the cast cannot overflow.
+    (h * scale).round().max(1.0) as u32
+}
+
 /// Fetch and decode the picture at `url`, fitted to `max_width` ×
 /// `max_height`.
 pub async fn fetch(http: &Http, url: &str, max_width: u32, max_height: u32) -> Result<Picture, MediaError> {
@@ -203,6 +222,27 @@ mod tests {
         assert_eq!((small.width, small.height), (40, 20));
         let tall = decode(&png(100, 4000), 960, 1600).unwrap();
         assert_eq!(tall.height, 1600);
+    }
+
+    #[test]
+    fn the_height_kept_for_a_picture_follows_its_drawn_size() {
+        // A CurseForge banner narrower than the 840 column: as declared.
+        assert_eq!(drawn_height(600, 300, 1280, 1600, 840), 300);
+        // A 1920×1080 screenshot: fitted to 1280 wide, then to the column.
+        assert_eq!(drawn_height(1920, 1080, 1280, 1600, 840), 473);
+        // A tall strip: the box's height caps it first.
+        assert_eq!(drawn_height(400, 4000, 1280, 1600, 840), 1600);
+        // A 1×1 tracking pixel, or nonsense: never 0.
+        assert_eq!(drawn_height(1, 1, 1280, 1600, 840), 1);
+        assert_eq!(drawn_height(4096, 1, 1280, 1600, 840), 1);
+        assert_eq!(drawn_height(0, 0, 0, 0, 0), 1);
+        // The same fit as decode's.
+        let shot = decode(&png(1920, 1080), 1280, 1600).unwrap();
+        let column = 840.0 / f64::from(shot.width);
+        assert_eq!(
+            drawn_height(1920, 1080, 1280, 1600, 840),
+            (f64::from(shot.height) * column).round() as u32
+        );
     }
 
     #[test]

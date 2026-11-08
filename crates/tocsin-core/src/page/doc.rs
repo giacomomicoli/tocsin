@@ -121,6 +121,12 @@ pub struct Image {
     pub alt: String,
     /// The link around it, when there is one.
     pub link: Option<String>,
+    /// The width its description declares, in pixels: lets the page keep
+    /// the picture's place before it arrives. Only HTML declares one (the
+    /// `width` attribute); `None` when absent or not a plain pixel size.
+    pub width: Option<u32>,
+    /// The height its description declares, in pixels, like `width`.
+    pub height: Option<u32>,
 }
 
 /// What relative links and pictures are resolved against.
@@ -510,6 +516,12 @@ impl Builder {
     /// A picture at `src` (see [`image_source`]); left out when it has no
     /// usable address, or past [`MAX_IMAGES`].
     pub fn image(&mut self, src: &str, alt: &str) {
+        self.sized_image(src, alt, None, None);
+    }
+
+    /// [`Builder::image`] with the size its description declares, already
+    /// checked (see [`Image::width`]).
+    pub fn sized_image(&mut self, src: &str, alt: &str, width: Option<u32>, height: Option<u32>) {
         if self.skip > 0 || self.pre.is_some() {
             return;
         }
@@ -527,7 +539,13 @@ impl Builder {
         self.images += 1;
         let link = self.links.iter().rev().find_map(Clone::clone);
         let alt = alt.split_whitespace().collect::<Vec<_>>().join(" ");
-        self.doc.blocks.push(Block::Image(Image { url, alt, link }));
+        self.doc.blocks.push(Block::Image(Image {
+            url,
+            alt,
+            link,
+            width,
+            height,
+        }));
     }
 
     /// A horizontal rule; never two in a row, nor one first.

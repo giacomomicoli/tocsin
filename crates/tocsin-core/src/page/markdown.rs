@@ -124,5 +124,7 @@ mod tests {
             panic!()
         };
         assert_eq!(i.alt, "Unit frames");
+        // Markdown declares no size: the page reserves its default height.
+        assert_eq!((i.width, i.height), (None, None));
     }
 }
