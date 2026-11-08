@@ -1,8 +1,10 @@
 //! Check every addon in a library for updates, concurrently but politely.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::Semaphore;
+use tokio::sync::{mpsc, Semaphore};
+use tokio::task::JoinSet;
 
 use crate::addon::{Flavor, InstalledAddon};
 use crate::http::Http;
@@ -226,8 +228,8 @@ pub async fn check_all(
     flavor: Flavor,
     client_interface: Option<u32>,
 ) -> Vec<UpdateReport> {
-    let all = (0..addons.len()).collect();
-    run(http, manifest, creds, addons, flavor, client_interface, all).await
+    let reports = check_stream(http, manifest, creds, addons, flavor, client_interface, None).await;
+    in_library_order(addons, reports).await
 }
 
 /// Check only the addons whose folder is in `folders`, with the same bound
@@ -246,34 +248,66 @@ pub async fn check_folders(
     client_interface: Option<u32>,
     folders: &[String],
 ) -> Vec<UpdateReport> {
-    let wanted = addons
-        .iter()
-        .enumerate()
-        .filter(|(_, a)| folders.contains(&a.folder))
-        .map(|(i, _)| i)
-        .collect();
-    run(http, manifest, creds, addons, flavor, client_interface, wanted).await
+    let reports = check_stream(
+        http,
+        manifest,
+        creds,
+        addons,
+        flavor,
+        client_interface,
+        Some(folders),
+    )
+    .await;
+    in_library_order(addons, reports).await
 }
 
-/// One check run over `addons[i]` for every `i` in `indices`. Each task gets
-/// the shared `Arc` and an index: cloning an addon would copy its whole
-/// `.toc` map once per check.
-async fn run(
+/// How many addons a check of `folders` covers (every addon when `None`):
+/// the number of reports [`check_stream`] will hand over, for a progress
+/// count. Folders not in the library do not count.
+pub fn in_scope(addons: &[InstalledAddon], folders: Option<&[String]>) -> usize {
+    indices(addons, folders).len()
+}
+
+/// Indices into `addons` of the folders a check covers, in library order.
+fn indices(addons: &[InstalledAddon], folders: Option<&[String]>) -> Vec<usize> {
+    addons
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| folders.map_or(true, |f| f.contains(&a.folder)))
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// Check the addons whose folder is in `folders` (every addon when `None`),
+/// with the bound and semantics of [`check_all`], handing each report over
+/// as soon as it is ready, in order of completion. The channel closes after
+/// the last one; dropping the receiver cancels the checks still waiting.
+///
+/// A whole run takes as long as its slowest provider: the GUI shows each
+/// status as it arrives instead of every badge at once at the end.
+///
+/// The checks are spawned on the Tokio runtime polling this future: await
+/// it from inside a task, never from a GUI's update function.
+pub async fn check_stream(
     http: &Http,
     manifest: &Manifest,
     creds: &Credentials,
     addons: &Arc<Vec<InstalledAddon>>,
     flavor: Flavor,
     client_interface: Option<u32>,
-    indices: Vec<usize>,
-) -> Vec<UpdateReport> {
+    folders: Option<&[String]>,
+) -> mpsc::UnboundedReceiver<UpdateReport> {
     // A new run asks every endpoint afresh.
     http.clear_cache();
     let creds = Arc::new(creds.clone());
     let sem = Arc::new(Semaphore::new(MAX_CONCURRENCY));
-    let mut handles = Vec::with_capacity(indices.len());
+    let mut set = JoinSet::new();
+    // Which addon each task checks, to name it if the task fails.
+    let mut index_of = HashMap::new();
 
-    for &i in &indices {
+    // Each task gets the shared `Arc` and an index: cloning an addon would
+    // copy its whole `.toc` map once per check.
+    for i in indices(addons, folders) {
         let http = http.clone();
         let creds = Arc::clone(&creds);
         let sem = Arc::clone(&sem);
@@ -282,7 +316,7 @@ async fn run(
             .overrides
             .get(&addons[i].folder)
             .is_some_and(|o| o.ignore);
-        handles.push(tokio::spawn(async move {
+        let task = set.spawn(async move {
             let _permit = sem.acquire_owned().await.expect("semaphore closed");
             let addon = &addons[i];
             let status = check_one(&http, &creds, addon, ignored, flavor, client_interface).await;
@@ -290,19 +324,48 @@ async fn run(
                 folder: addon.folder.clone(),
                 status,
             }
-        }));
+        });
+        index_of.insert(task.id(), i);
     }
 
-    let mut out = Vec::with_capacity(handles.len());
-    for (h, i) in handles.into_iter().zip(indices) {
-        match h.await {
-            Ok(r) => out.push(r),
-            Err(e) => out.push(UpdateReport {
-                folder: addons[i].folder.clone(),
-                status: UpdateStatus::Error(e.to_string()),
-            }),
+    let (tx, rx) = mpsc::unbounded_channel();
+    let addons = Arc::clone(addons);
+    tokio::spawn(async move {
+        while let Some(joined) = set.join_next().await {
+            let report = match joined {
+                Ok(report) => report,
+                Err(e) => match index_of.get(&e.id()) {
+                    Some(&i) => UpdateReport {
+                        folder: addons[i].folder.clone(),
+                        status: UpdateStatus::Error(e.to_string()),
+                    },
+                    None => continue,
+                },
+            };
+            if tx.send(report).is_err() {
+                // Nobody listens any more: dropping the set aborts the rest.
+                return;
+            }
         }
+    });
+    rx
+}
+
+/// Every report of a run, in the order of `addons`.
+async fn in_library_order(
+    addons: &[InstalledAddon],
+    mut reports: mpsc::UnboundedReceiver<UpdateReport>,
+) -> Vec<UpdateReport> {
+    let position: HashMap<&str, usize> = addons
+        .iter()
+        .enumerate()
+        .map(|(i, a)| (a.folder.as_str(), i))
+        .collect();
+    let mut out = Vec::new();
+    while let Some(report) = reports.recv().await {
+        out.push(report);
     }
+    out.sort_by_key(|r| position.get(r.folder.as_str()).copied());
     out
 }
 
@@ -413,6 +476,65 @@ mod tests {
         )
         .await;
         assert!(none.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_stream_hands_over_every_report_once() {
+        let mut manifest = Manifest::default();
+        manifest.overrides.entry("Quiet".into()).or_default().ignore = true;
+        let lib = library();
+        let mut rx = check_stream(
+            &Http::new(),
+            &manifest,
+            &Credentials::default(),
+            &lib,
+            Flavor::Retail,
+            None,
+            None,
+        )
+        .await;
+        let mut got = Vec::new();
+        while let Some(r) = rx.recv().await {
+            got.push((r.folder, r.status));
+        }
+        // Order of completion is not library order: compare as a set.
+        got.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            got,
+            vec![
+                ("Bare".to_string(), UpdateStatus::NoSource),
+                ("Quiet".to_string(), UpdateStatus::Ignored),
+                (
+                    "Zygor".to_string(),
+                    UpdateStatus::Manual("https://zygorguides.com/".into())
+                ),
+            ]
+        );
+        assert_eq!(got.len(), in_scope(&lib, None));
+    }
+
+    #[tokio::test]
+    async fn a_scoped_stream_counts_only_folders_in_the_library() {
+        let lib = library();
+        let wanted = ["Bare".to_string(), "Gone".to_string()];
+        assert_eq!(in_scope(&lib, Some(&wanted)), 1);
+        assert_eq!(in_scope(&lib, Some(&[])), 0);
+        let mut rx = check_stream(
+            &Http::new(),
+            &Manifest::default(),
+            &Credentials::default(),
+            &lib,
+            Flavor::Retail,
+            None,
+            Some(&wanted),
+        )
+        .await;
+        let first = rx.recv().await.expect("one report");
+        assert_eq!(first.folder, "Bare");
+        assert!(
+            rx.recv().await.is_none(),
+            "the channel closes after the last report"
+        );
     }
 
     #[test]
