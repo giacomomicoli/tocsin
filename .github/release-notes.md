@@ -12,35 +12,28 @@ window the first time (click *More info*, then *Run anyway*), and PCs with
 Smart App Control turned on won't run it. See
 [Why the releases aren't signed](https://github.com/giacomomicoli/tocsin#why-the-releases-arent-signed).
 
-### What's new in 0.3.0
+### What's new in 0.3.1
 
-- **A page for every addon.** Click an addon's name, in the library or in
-  the search results, to read what its site says about it: the summary, the
-  screenshots and the full description (CurseForge's page, the GitHub
-  README, the WoWInterface or Tukui description). When several sites have a
-  page, one button per site switches between them; **Back** returns to the
-  list where you left it, and a search result's **Install** is right there.
-  Pictures come only from the addon sites and from `i.imgur.com`; any other
-  is shown as a link. Opening a page tells that site which addon you looked
-  at. ([#17](https://github.com/giacomomicoli/tocsin/issues/17))
-- **The library says what each addon is.** A short line under the name, when
-  its site sends one with the update check (CurseForge, WoWInterface,
-  Tukui). The window now opens a little larger, 1280×800, to give the new
-  page room.
-- **Large addons install.** Voice-over packs of 300–500 MB (the *Spoken*
-  addons) were refused as "larger than 256 MiB". Tocsin now takes them when
-  the site says how big the file is, asks first on a new install
-  ("Download 453 MB?"), shows the download's progress, picks up a dropped
-  connection where it stopped, and checks the free space on your disk
-  first. ([#26](https://github.com/giacomomicoli/tocsin/issues/26))
-- **Addons unzipped one folder too deep.** Windows' *Extract all* puts
-  Details' folders inside a folder named after the zip, where the game
-  loads none of them. The library now shows such a folder as **Not
-  loaded** with **Move up**, which puts the addons where the game looks
-  (asking first if that replaces anything, and keeping the old copies for
-  *Rollback*). Installing a zip made that way works too.
-  ([#27](https://github.com/giacomomicoli/tocsin/issues/27))
-- **Fixed: hand-installed CurseForge addons showed an error.** Auctionator
-  names only its CurseForge page, not its id: Tocsin now checks it on
-  CurseForge (with your key) instead of a GitHub repository that has gone
-  private. ([#25](https://github.com/giacomomicoli/tocsin/issues/25))
+Nothing new to learn: this release makes Tocsin show what it is doing, so
+a wait is never a blank one.
+
+- **Update checks show each answer as it arrives.** Rows used to say
+  *Checking…* until the whole check was over, then flip all at once. Now
+  each badge changes the moment its site answers, and the status line
+  counts along: *Checking updates · 12 of 55…*. Pressing **Check updates**
+  sets the rows back to *Checking…* right away, so the click is visible.
+- **Loaders move.** The three diamonds now step while Tocsin scans a
+  folder, checks for updates, waits for your API keys or installs an addon,
+  and on an addon's page while it and its pictures load. Before, they stood
+  still outside search and downloads.
+- **Addon pages load in reading order, without jumping.** The large
+  screenshot comes first, then the thumbnails, then the pictures of the
+  description, three at a time instead of two. A picture still on its way
+  keeps its place, at the size the page declares for it when it does, so
+  the text under it no longer moves when it appears.
+- **A little quicker to the first frame.** The system fonts are read while
+  the window and the graphics card are set up, instead of after. The gain
+  is small on a warm start and larger on a cold one. Nothing in the app can
+  shorten what happens before it draws (Windows checking a new download, a
+  cold disk); see the note above about unsigned releases.
+  ([#34](https://github.com/giacomomicoli/tocsin/pull/34))
