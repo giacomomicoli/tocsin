@@ -127,12 +127,15 @@ impl App {
                 return Task::none();
             }
         };
+        // In the order the eye meets them: the screenshot shown large, the
+        // thumbnails under it, then the description's pictures in order.
         let mut wanted: Vec<(Fit, String)> = page
             .gallery
-            .iter()
-            .map(|s| (Fit::Thumb, s.thumb.clone()))
+            .first()
+            .map(|s| (Fit::Full, s.url.clone()))
+            .into_iter()
             .collect();
-        wanted.extend(page.gallery.first().map(|s| (Fit::Full, s.url.clone())));
+        wanted.extend(page.gallery.iter().map(|s| (Fit::Thumb, s.thumb.clone())));
         wanted.extend(page.body.images().map(|i| (Fit::Full, i.url.clone())));
         let spans = spans_of(&page, tokens);
         v.state = PageState::Ready(Box::new(Shown { page, spans }));

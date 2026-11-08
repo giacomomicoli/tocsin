@@ -207,8 +207,10 @@ impl Fit {
 /// shown as a link. A full-width 16:9 screenshot is about 4 MB.
 const PAGE_PICTURE_BYTES: usize = 96 * 1024 * 1024;
 
-/// Page picture downloads in flight at once: they are larger than icons.
-const PICTURE_CONCURRENCY: usize = 2;
+/// Page picture downloads in flight at once. Pictures are heavier than
+/// icons, so fewer than the icons' downloads; but three, not two, keep the
+/// gallery from filling one picture at a time behind the large shot.
+const PICTURE_CONCURRENCY: usize = 3;
 
 /// The scrollables whose position the addon page's Back restores, and the
 /// page's own.
