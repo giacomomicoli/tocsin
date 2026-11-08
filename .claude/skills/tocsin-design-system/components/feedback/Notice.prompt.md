@@ -1,4 +1,11 @@
-Feedback primitives: Notice for the footer status line, ConfirmBanner for a question that blocks a destructive action (or a large download), Progress for a running download, Loader for catalog/search waits.
+Feedback primitives: Notice for the footer status line, ConfirmBanner for a question that blocks a destructive action (or a large download), Progress for a running download, Loader for any wait.
+
+Loader is `App::loader(label)` in the app (the dots then a muted 12px label), or `App::loader_dots()` alone. It turns on the 250ms tick, which runs only while something waits. Used by:
+
+- Get addons: the catalog download and a search ("Searching…"), centred in the list area.
+- Library, first scan: "Scanning Retail…" (the installation's label) centred in the empty list.
+- Addon page: the page and its pictures loading.
+- The footer, while the app is busy (a scan, a check, an install, a move): the dots alone, before the notice. During a check the notice is its live count, "Checking updates · 12 of 55…", with no "×"; the summary ("3 updates available · …") replaces it when the last answer arrives. While a check waits for the API keys: "Reading your API keys…". Each row's badge reads "Checking…" until its own answer arrives.
 
 ConfirmBanner is `widgets::confirm_banner(title, body, actions)` in the app (padding `space::CONFIRM_PAD`, style `theme::confirm`). It sits under the page's head and toolbar, above the list. Title is a question ("Replace 2 folders?", "Delete Bagnon?"); body says what happens and what cannot be undone; actions are ghost Cancel then danger for the destructive answer. Used by:
 

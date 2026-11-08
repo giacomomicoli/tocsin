@@ -207,8 +207,10 @@ impl Fit {
 /// shown as a link. A full-width 16:9 screenshot is about 4 MB.
 const PAGE_PICTURE_BYTES: usize = 96 * 1024 * 1024;
 
-/// Page picture downloads in flight at once: they are larger than icons.
-const PICTURE_CONCURRENCY: usize = 2;
+/// Page picture downloads in flight at once. Pictures are heavier than
+/// icons, so fewer than the icons' downloads; but three, not two, keep the
+/// gallery from filling one picture at a time behind the large shot.
+const PICTURE_CONCURRENCY: usize = 3;
 
 /// The scrollables whose position the addon page's Back restores, and the
 /// page's own.
@@ -310,6 +312,25 @@ impl CheckScope {
             _ => CheckScope::All,
         }
     }
+
+    /// Whether the scope covers this folder.
+    fn covers(&self, folder: &str) -> bool {
+        match self {
+            CheckScope::All => true,
+            CheckScope::Folders(folders) => folders.iter().any(|f| f == folder),
+        }
+    }
+}
+
+/// The check running, for the footer's count and the rows' "Checking…".
+#[derive(Debug)]
+struct CheckRun {
+    /// The library it answers for (see `App::lib_gen`).
+    gen: u64,
+    scope: CheckScope,
+    /// Reports received so far, of `total`.
+    done: usize,
+    total: usize,
 }
 
 /// Status tallies the toolbar and the notice show, recomputed when statuses
@@ -400,6 +421,8 @@ pub struct App {
     /// A check asked for before the keys were read: it runs when they arrive,
     /// never with empty credentials.
     pending_check: Option<CheckScope>,
+    /// The check under way, from its start to its last report.
+    check: Option<CheckRun>,
     filter: Filter,
     search: String,
     busy: bool,
@@ -455,8 +478,10 @@ pub enum Message {
     CredsLoaded(Arc<Credentials>, BTreeMap<Secret, KeyStatus>),
     /// Check the whole library.
     CheckUpdates,
-    /// Reports for the library of scan number `.0`.
-    Checked(u64, Vec<UpdateReport>),
+    /// One addon checked, for the library of scan number `.0`.
+    Checked(u64, UpdateReport),
+    /// The check of the library of scan number `.0` is over.
+    CheckDone(u64),
     /// Download and install the release found for this folder.
     Update(String),
     /// Install a missing dependency `(dep_folder, head_folder)` from the
@@ -626,6 +651,7 @@ impl App {
             creds: None,
             key_status: BTreeMap::new(),
             pending_check: None,
+            check: None,
             filter: Filter::All,
             search: String::new(),
             busy: false,
@@ -680,13 +706,20 @@ impl App {
     }
 
     /// A timer for the loaders, running only while one is on screen: an idle
-    /// app wakes up for nothing.
+    /// app wakes up for nothing. A scan, a check (or one waiting for the
+    /// keys) and an install keep the busy loader of the footer turning.
     pub fn subscription(&self) -> Subscription<Message> {
+        // The addon page, while it or one of its pictures loads.
+        if self.addon.as_ref().is_some_and(AddonView::is_loading) {
+            return iced::time::every(Duration::from_millis(250)).map(|_| Message::Tick);
+        }
         let d = &self.discover;
         if d.catalog == CatalogState::Loading
             || d.searching
             || d.installing.is_some()
             || self.transfer.is_some()
+            || self.busy
+            || self.pending_check.is_some()
         {
             iced::time::every(Duration::from_millis(250)).map(|_| Message::Tick)
         } else {
@@ -751,6 +784,8 @@ impl App {
                 } = *scan;
                 let addons = library.addons;
                 self.lib_gen += 1;
+                // A run for the old library is dropped report by report.
+                self.check = None;
                 self.removed = removed;
                 self.confirm_move = None;
                 self.wrapped = library.wrapped;
@@ -829,18 +864,26 @@ impl App {
                 if self.addons.is_empty() || self.busy {
                     return Task::none();
                 }
-                self.start_check(CheckScope::All)
+                self.fresh_check(CheckScope::All)
             }
-            Message::Checked(gen, reports) => {
+            Message::Checked(gen, report) => {
                 if gen != self.lib_gen {
                     // A newer scan replaced the library this answers for.
                     return Task::none();
                 }
-                self.busy = false;
-                for r in reports {
-                    self.statuses.insert(r.folder, r.status);
+                self.statuses.insert(report.folder, report.status);
+                if let Some(run) = self.check.as_mut().filter(|r| r.gen == gen) {
+                    run.done += 1;
                 }
                 self.recount();
+                Task::none()
+            }
+            Message::CheckDone(gen) => {
+                if gen != self.lib_gen {
+                    return Task::none();
+                }
+                self.busy = false;
+                self.check = None;
                 let Counts {
                     outdated,
                     errors,
@@ -1492,7 +1535,7 @@ impl App {
                         let then = if self.addons.is_empty() {
                             self.update(Message::Scan)
                         } else {
-                            self.start_check(CheckScope::All)
+                            self.fresh_check(CheckScope::All)
                         };
                         Task::batch([self.load_creds(), then])
                     }
@@ -1557,20 +1600,69 @@ impl App {
         let addons = Arc::clone(&self.addons);
         let (flavor, build) = (self.flavor, self.client_interface);
         let gen = self.lib_gen;
-        Task::perform(
-            async move {
-                match scope {
-                    CheckScope::All => {
-                        checker::check_all(&http, &manifest, &creds, &addons, flavor, build).await
-                    }
-                    CheckScope::Folders(folders) => {
-                        checker::check_folders(&http, &manifest, &creds, &addons, flavor, build, &folders)
-                            .await
-                    }
+        let folders = match &scope {
+            CheckScope::All => None,
+            CheckScope::Folders(folders) => Some(folders.clone()),
+        };
+        self.check = Some(CheckRun {
+            gen,
+            total: checker::in_scope(&addons, folders.as_deref()),
+            scope,
+            done: 0,
+        });
+        // The checks are spawned when this future first runs, inside the
+        // runtime: `update` runs on the UI thread, outside of it.
+        let run = async move {
+            checker::check_stream(
+                &http,
+                &manifest,
+                &creds,
+                &addons,
+                flavor,
+                build,
+                folders.as_deref(),
+            )
+            .await
+        };
+        let reports = stream::once(run)
+            .flat_map(|rx| stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|r| (r, rx)) }));
+        Task::run(reports, move |r| Message::Checked(gen, r)).chain(Task::done(Message::CheckDone(gen)))
+    }
+
+    /// A check the user asked for: the statuses it replaces go at once, so
+    /// their rows say "Checking…" until each answer arrives. The check after
+    /// a scan does not need it: `scope_after_scan` already did the same.
+    fn fresh_check(&mut self, scope: CheckScope) -> Task<Message> {
+        match &scope {
+            CheckScope::All => self.statuses.clear(),
+            CheckScope::Folders(folders) => {
+                for f in folders {
+                    self.statuses.remove(f);
                 }
-            },
-            move |reports| Message::Checked(gen, reports),
-        )
+            }
+        }
+        self.recount();
+        self.start_check(scope)
+    }
+
+    /// Whether a check, running or waiting for the keys, covers `folder`.
+    fn checking(&self, folder: &str) -> bool {
+        self.pending_check.as_ref().is_some_and(|s| s.covers(folder))
+            || self.check.as_ref().is_some_and(|r| r.scope.covers(folder))
+    }
+
+    /// Whether a check is running or waiting for the keys.
+    fn checking_any(&self) -> bool {
+        self.pending_check.is_some() || self.check.is_some()
+    }
+
+    /// What the footer says while a check runs or waits, in place of the
+    /// notice: "Checking updates · 12 of 55…".
+    fn activity(&self) -> Option<String> {
+        if let Some(run) = self.check.as_ref().filter(|r| r.gen == self.lib_gen) {
+            return Some(format!("Checking updates · {} of {}…", run.done, run.total));
+        }
+        (self.pending_check.is_some() && self.creds.is_none()).then(|| "Reading your API keys…".to_string())
     }
 
     /// Whether a confirm banner about a fresh install is waiting for an
@@ -2222,23 +2314,45 @@ impl App {
     }
 
     /// The notice line, with the running download's progress on its right.
-    /// The progress stays when the notice is dismissed.
+    /// The progress stays when the notice is dismissed. While something runs
+    /// the loader turns before it; a check shows its count instead of the
+    /// notice, which the summary replaces when it ends.
     fn footer(&self) -> Element<'_, Message> {
         let progress = self.transfer.as_ref().map(|t| self.progress(t));
-        let Some((is_error, msg)) = &self.notice else {
-            return match progress {
-                Some(p) => row![space::horizontal(), p].into(),
-                None => container(text("")).height(0).into(),
+        let dots = self.busy.then(|| self.loader_dots());
+        let (line, dismiss) = match (self.activity(), &self.notice) {
+            (Some(activity), _) => (Some(text(activity).style(theme::muted)), false),
+            (None, Some((is_error, msg))) => {
+                let style: fn(&Theme) -> text::Style = if *is_error {
+                    |t| theme::tone(Tone::Error)(t)
+                } else {
+                    theme::muted
+                };
+                (Some(text(msg.as_str()).style(style)), true)
+            }
+            (None, None) => (None, false),
+        };
+        let Some(line) = line else {
+            return match (dots, progress) {
+                (None, None) => container(text("")).height(0).into(),
+                (dots, progress) => row![]
+                    .push(dots)
+                    .push(space::horizontal())
+                    .push(progress)
+                    .spacing(8)
+                    .align_y(Alignment::Center)
+                    .into(),
             };
         };
-        let style: fn(&Theme) -> text::Style = if *is_error {
-            |t| theme::tone(Tone::Error)(t)
-        } else {
-            theme::muted
-        };
-        row![text(msg).size(theme::size::CONTROL).style(style).width(Fill)]
+        row![]
+            .push(dots)
+            .push(line.size(theme::size::CONTROL).width(Fill))
             .push(progress)
-            .push(widgets::ghost("×", theme::size::CONTROL, [2, 8]).on_press(Message::DismissNotice))
+            .push(
+                dismiss.then(|| {
+                    widgets::ghost("×", theme::size::CONTROL, [2, 8]).on_press(Message::DismissNotice)
+                }),
+            )
             .spacing(8)
             .align_y(Alignment::Center)
             .into()
@@ -2347,6 +2461,16 @@ fn prune_cache() -> Task<Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_check_says_checking_only_for_the_folders_it_covers() {
+        // After installing Routine, only its family is re-checked: Zygor's
+        // row must not read "Checking…".
+        let family = CheckScope::Folders(vec!["Routine".into(), "RoutineData".into()]);
+        assert!(family.covers("RoutineData"));
+        assert!(!family.covers("Zygor"));
+        assert!(CheckScope::All.covers("Zygor"));
+    }
 
     #[test]
     fn short_path_shows_the_game_folder_tail() {

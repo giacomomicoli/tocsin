@@ -15,10 +15,17 @@ Layout, top to bottom:
     - list items indented `space::CHILD_INDENT` per level, after a gold `◆` (11px) or a muted "3.";
     - quotes in a `theme::row_child` box, muted;
     - code blocks in a `theme::sunken` box, mono 12px;
-    - pictures at their size, scaled down to the column. One that is not shown (another host, failed, over the page's budget) becomes a `theme::sunken` line "Logo · i.example.com" with a ghost **Open**;
+    - pictures at their size, scaled down to the column. While one loads, its place is kept: a `theme::sunken` box the width of the column with the loader ("Loading the picture…") centred in it, as tall as the picture will be drawn when its description declares a size (HTML `width` and `height`: decoded to fit the full-picture box, 1280×1600, then scaled down to `space::READ_W`, aspect kept), else `space::PICTURE_H` (120, `--h-picture`). The picture replaces the box when it arrives. One that is not shown (another host, failed, over the page's budget) becomes a `theme::sunken` line "Logo · i.example.com" with a ghost **Open**;
     - rules: the gold rule;
   - "The rest is on the site." with **Open**, when the description was cut to the limits.
 - Loading shows the loader ("Loading the page…"). A failure shows its message, muted and centered, with **Add a key** when a CurseForge key would help.
+
+Loading, in order:
+
+- The text shows as soon as the page is in; the pictures follow without holding it.
+- Every loader on the page steps (the 250 ms tick runs while the page or any of its pictures loads, and stops after).
+- Pictures are asked for in the order the eye meets them: the screenshot shown large, then the thumbnails, then the description's pictures in document order; three at a time.
+- Nothing moves when a picture arrives: the large shot's well is `space::SHOT_H` tall from the start, a thumbnail waiting for its picture is an empty 16:9 slot `space::THUMB_H` tall in its `theme::thumb` button (the sunken fill inside the row border), and a description picture keeps the place described above. The placeholders are plain boxes: one background, one border, no motion in the style; only the loader's diamonds step.
 
 The entry point, **NameLink** (`theme::name_link(dim)`): in a Library row and a Get addons result, the icon slot and the name column are one button with no surface or border. Under the cursor the name turns `--text-gold`; the lines with their own tone keep it. `dim` keeps a disabled row's `--text-3`. A row with no page (only a manual link) is the same button, disabled, and looks like the plain row.
 
@@ -26,7 +33,7 @@ Rules:
 
 - Back puts the list back where it was scrolled. Leaving by the nav closes the page, and so does switching installation (back to its list).
 - No web view, no page scraping: the description is converted to blocks in the core. A picture is fetched only from `page::media::ALLOWED_HOSTS`; any other is a link.
-- Nothing on the page invents a style: the new pieces are `theme::name_link`, `theme::thumb`, `theme::sunken` and the tokens above.
+- Nothing on the page invents a style: the new pieces are `theme::name_link`, `theme::thumb`, `theme::sunken` and the tokens above (`READ_W`, `PROSE_GAP`, `SHOT_H`, `THUMB_H`, `THUMB_PAD`, `PICTURE_H`).
 
 ```jsx
 <PageHead title="CursedSurges" subtitle="CurseForge · by nero"

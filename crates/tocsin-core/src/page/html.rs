@@ -6,11 +6,13 @@
 //! knows the few dozen tags descriptions use. Unknown tags are dropped and
 //! their text kept; `<script>`, `<style>` and `<svg>` are dropped whole.
 //! Nothing is executed, fetched or styled; attributes other than `href`,
-//! `src`, `alt`, `start` and `data-canonical-src` are not even kept.
+//! `src`, `alt`, `start`, `data-canonical-src`, `width` and `height` are
+//! not even kept.
 
 use std::borrow::Cow;
 
 use super::doc::{Bases, Builder, Doc};
+use super::media::MAX_SIDE;
 
 /// Convert `html` to a [`Doc`], resolving relative links against `bases`.
 pub(crate) fn to_doc(html: &str, bases: Bases) -> Doc {
@@ -83,6 +85,8 @@ struct Tag {
     alt: Option<String>,
     start: Option<String>,
     canonical: Option<String>,
+    width: Option<String>,
+    height: Option<String>,
 }
 
 impl Tag {
@@ -154,6 +158,8 @@ impl Tag {
                 "alt" => &mut tag.alt,
                 "start" => &mut tag.start,
                 "data-canonical-src" => &mut tag.canonical,
+                "width" => &mut tag.width,
+                "height" => &mut tag.height,
                 _ => continue,
             };
             if slot.is_none() {
@@ -242,9 +248,11 @@ impl State {
                         .ends_with(".svg")
                 });
                 if !svg {
-                    b.image(
+                    b.sized_image(
                         tag.src.as_deref().unwrap_or_default(),
                         tag.alt.as_deref().unwrap_or_default(),
+                        tag.width.as_deref().and_then(declared_side),
+                        tag.height.as_deref().and_then(declared_side),
                     );
                 }
             }
@@ -268,6 +276,20 @@ impl State {
         }
         None
     }
+}
+
+/// A picture's `width` or `height` attribute, when it is a plain size in
+/// pixels: CurseForge's editor writes `width="600"`, a README `width="300"`
+/// or now and then `width="300px"`. A percentage (`width="100%"`, common in
+/// READMEs), zero, a size past [`MAX_SIDE`] (no picture that large is ever
+/// decoded) or anything else says nothing usable: `None`.
+fn declared_side(raw: &str) -> Option<u32> {
+    let raw = raw.trim();
+    let digits = raw.strip_suffix("px").unwrap_or(raw).trim_end();
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok().filter(|&n| n > 0 && n <= MAX_SIDE)
 }
 
 /// `&amp;`, `&#39;`, `&#x2014;` and the named entities descriptions use,
@@ -465,6 +487,50 @@ if x &lt; 2 then print(x) end</pre></div>
         );
         assert_eq!(plain(&to_doc("<!DOCTYPE html><p>ok", Bases::default())), ["ok"]);
         assert_eq!(plain(&to_doc("</li></ul>text", Bases::default())), ["text"]);
+    }
+
+    /// The size of each picture of `html`, in order.
+    fn sizes(html: &str) -> Vec<(Option<u32>, Option<u32>)> {
+        to_doc(html, Bases::default())
+            .images()
+            .map(|i| (i.width, i.height))
+            .collect()
+    }
+
+    #[test]
+    fn pictures_keep_the_size_they_declare() {
+        // CurseForge's editor: both sizes, or only the width (Details!).
+        assert_eq!(
+            sizes(r#"<p><img src="https://media.forgecdn.net/a.png" width="600" height="300"></p>"#),
+            [(Some(600), Some(300))]
+        );
+        let logo = to_doc(CURSEFORGE, Bases::same("https://www.curseforge.com/"));
+        let logo = logo.images().next().unwrap();
+        assert_eq!((logo.width, logo.height), (Some(600), None));
+        // A README: unquoted, with a unit, upper case.
+        assert_eq!(
+            sizes(r#"<img src="https://i.imgur.com/a.png" WIDTH=300px height=" 120 ">"#),
+            [(Some(300), Some(120))]
+        );
+    }
+
+    #[test]
+    fn sizes_that_say_nothing_usable_are_dropped() {
+        for html in [
+            r#"<img src="https://i.imgur.com/a.png" width="100%" height="auto">"#,
+            r#"<img src="https://i.imgur.com/a.png" width="0" height="0">"#,
+            r#"<img src="https://i.imgur.com/a.png" width="4097" height="99999999999999">"#,
+            r#"<img src="https://i.imgur.com/a.png" width="-5" height="12.5">"#,
+            r#"<img src="https://i.imgur.com/a.png" width="" height="px">"#,
+            r#"<img src="https://i.imgur.com/a.png" width="3em" height="+40">"#,
+            r#"<img src="https://i.imgur.com/a.png">"#,
+        ] {
+            assert_eq!(sizes(html), [(None, None)], "{html}");
+        }
+        assert_eq!(
+            sizes(r#"<img src="https://i.imgur.com/a.png" width="4096" height="1">"#),
+            [(Some(4096), Some(1))]
+        );
     }
 
     #[test]

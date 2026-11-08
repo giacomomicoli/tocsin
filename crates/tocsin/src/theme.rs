@@ -102,6 +102,10 @@ pub mod space {
     pub const READ_W: f32 = 840.0; // reading column: text, pictures, gallery
     pub const PROSE_GAP: u32 = 10; // between blocks of a description
     pub const SHOT_H: f32 = 360.0; // the gallery's shown screenshot
+    /// A description picture's place while it loads, when its description
+    /// declares no size: a third of `SHOT_H`, about a banner or a small
+    /// screenshot scaled to the column, so the jump is small either way.
+    pub const PICTURE_H: f32 = 120.0;
     pub const THUMB_H: f32 = 54.0; // a gallery thumbnail (16:9 → 96px wide)
     pub const THUMB_PAD: u16 = 2; // thumbnail ↔ its border
 }

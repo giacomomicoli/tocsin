@@ -13,7 +13,7 @@ use iced::widget::scrollable::RelativeOffset;
 use iced::widget::{button, column, container, image, operation, rich_text, row, space, span, text, Column};
 use iced::{Alignment, ContentFit, Element, Fill, Font, Length, Padding, Task};
 
-use tocsin_core::page::{self, media, Block, Kind, Marker, Page, PageError};
+use tocsin_core::page::{self, media, Block, Image, Kind, Marker, Page, PageError};
 use tocsin_core::SourceRef;
 
 use super::widgets::{self, badge, icon_slot, monogram};
@@ -127,12 +127,15 @@ impl App {
                 return Task::none();
             }
         };
+        // In the order the eye meets them: the screenshot shown large, the
+        // thumbnails under it, then the description's pictures in order.
         let mut wanted: Vec<(Fit, String)> = page
             .gallery
-            .iter()
-            .map(|s| (Fit::Thumb, s.thumb.clone()))
+            .first()
+            .map(|s| (Fit::Full, s.url.clone()))
+            .into_iter()
             .collect();
-        wanted.extend(page.gallery.first().map(|s| (Fit::Full, s.url.clone())));
+        wanted.extend(page.gallery.iter().map(|s| (Fit::Thumb, s.thumb.clone())));
         wanted.extend(page.body.images().map(|i| (Fit::Full, i.url.clone())));
         let spans = spans_of(&page, tokens);
         v.state = PageState::Ready(Box::new(Shown { page, spans }));
@@ -448,13 +451,23 @@ impl App {
                     }
                 }
                 Some(PictureState::Unavailable) => self.picture_link(&img.alt, &img.url, img.link.as_deref()),
-                _ => text("Loading the picture…")
-                    .size(size::META)
-                    .style(theme::faint)
-                    .into(),
+                _ => self.picture_placeholder(img),
             },
             Block::Rule => widgets::rule(),
         }
+    }
+
+    /// The place a description picture keeps while it loads, so that the
+    /// text under it does not move when it arrives: a sunken box with the
+    /// loader, as wide as the column and as tall as [`placeholder_height`].
+    /// Clipped: a picture declared a few pixels tall keeps those few.
+    fn picture_placeholder<'a>(&self, img: &Image) -> Element<'a, Message> {
+        container(self.loader("Loading the picture…"))
+            .center_x(Fill)
+            .center_y(placeholder_height(img))
+            .clip(true)
+            .style(theme::sunken)
+            .into()
     }
 
     /// A picture that is not shown: what it is, where, and Open (its link,
@@ -516,11 +529,36 @@ impl AddonView {
         self.batch.clear();
     }
 
+    /// Whether the page or one of its pictures is still on its way: its
+    /// loaders are on screen and need the timer.
+    pub(super) fn is_loading(&self) -> bool {
+        matches!(self.state, PageState::Loading)
+            || self
+                .thumbs
+                .values()
+                .chain(self.pictures.values())
+                .any(|p| matches!(p, PictureState::Loading))
+    }
+
     fn map(&mut self, fit: Fit) -> &mut HashMap<String, PictureState> {
         match fit {
             Fit::Thumb => &mut self.thumbs,
             Fit::Full => &mut self.pictures,
         }
+    }
+}
+
+/// How tall a description picture is drawn, to keep its place while it
+/// loads: from the size its description declares, decoded to fit
+/// [`Fit::Full`] and scaled down to the reading column at its widest
+/// ([`sp::READ_W`]); [`sp::PICTURE_H`] when it declares no size. In a window
+/// narrow enough to make the column narrower, the picture comes out a
+/// little shorter than its place.
+fn placeholder_height(img: &Image) -> f32 {
+    let (max_w, max_h) = Fit::Full.bounds();
+    match (img.width, img.height) {
+        (Some(w), Some(h)) => media::drawn_height(w, h, max_w, max_h, sp::READ_W as u32) as f32,
+        _ => sp::PICTURE_H,
     }
 }
 
@@ -603,4 +641,30 @@ fn spans_of(page: &Page, tokens: &Tokens) -> Vec<Vec<PageSpan>> {
             _ => Vec::new(),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn picture(width: Option<u32>, height: Option<u32>) -> Image {
+        Image {
+            url: "https://media.forgecdn.net/attachments/description/61284/banner.png".into(),
+            alt: String::new(),
+            link: None,
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn a_loading_picture_keeps_the_place_it_will_take() {
+        // CurseForge's `<img width="600" height="300">`: as declared.
+        assert_eq!(placeholder_height(&picture(Some(600), Some(300))), 300.0);
+        // A full HD screenshot: decoded to 1280 wide, drawn 840 wide.
+        assert_eq!(placeholder_height(&picture(Some(1920), Some(1080))), 473.0);
+        // No size, or half of one (`width="600"` alone): the token.
+        assert_eq!(placeholder_height(&picture(None, None)), sp::PICTURE_H);
+        assert_eq!(placeholder_height(&picture(Some(600), None)), sp::PICTURE_H);
+    }
 }
