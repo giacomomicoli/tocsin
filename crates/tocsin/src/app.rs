@@ -682,6 +682,10 @@ impl App {
     /// A timer for the loaders, running only while one is on screen: an idle
     /// app wakes up for nothing.
     pub fn subscription(&self) -> Subscription<Message> {
+        // The addon page, while it or one of its pictures loads.
+        if self.addon.as_ref().is_some_and(AddonView::is_loading) {
+            return iced::time::every(Duration::from_millis(250)).map(|_| Message::Tick);
+        }
         let d = &self.discover;
         if d.catalog == CatalogState::Loading
             || d.searching

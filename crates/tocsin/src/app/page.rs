@@ -516,6 +516,17 @@ impl AddonView {
         self.batch.clear();
     }
 
+    /// Whether the page or one of its pictures is still on its way: its
+    /// loaders are on screen and need the timer.
+    pub(super) fn is_loading(&self) -> bool {
+        matches!(self.state, PageState::Loading)
+            || self
+                .thumbs
+                .values()
+                .chain(self.pictures.values())
+                .any(|p| matches!(p, PictureState::Loading))
+    }
+
     fn map(&mut self, fit: Fit) -> &mut HashMap<String, PictureState> {
         match fit {
             Fit::Thumb => &mut self.thumbs,
