@@ -5,7 +5,7 @@ use iced::widget::{button, column, container, row, text, text_input, Column};
 use iced::{Alignment, Element, Fill, Length, Padding, Theme};
 
 use tocsin_core::addon::Compat;
-use tocsin_core::{InstalledAddon, SourceRef, UpdateStatus};
+use tocsin_core::{detect, InstalledAddon, SourceRef, UpdateStatus};
 
 use super::widgets::{self, badge, icon_slot, monogram};
 use super::{App, Counts, Filter, Message, Screen, LIBRARY_LIST};
@@ -34,7 +34,13 @@ impl App {
                 widgets::ghost("Rescan", size::CONTROL, space::BTN_MD)
                     .on_press_maybe((!self.busy).then_some(Message::Scan)),
                 widgets::primary(
-                    if self.busy { "Working…" } else { "Check updates" },
+                    if self.checking_any() {
+                        "Checking…"
+                    } else if self.busy {
+                        "Working…"
+                    } else {
+                        "Check updates"
+                    },
                     size::CONTROL,
                     space::BTN_MD
                 )
@@ -152,11 +158,14 @@ impl App {
 
     fn list(&self) -> Element<'_, Message> {
         if self.addons.is_empty() && self.wrapped.is_empty() {
-            let hint = if self.busy {
-                "Scanning…"
-            } else {
-                "No addons found. Check the game folder in Settings."
-            };
+            if self.busy {
+                let scanning = match self.active_dir() {
+                    Some(dir) => format!("Scanning {}…", detect::label_of(dir)),
+                    None => "Scanning…".to_string(),
+                };
+                return container(self.loader(scanning)).center(Fill).into();
+            }
+            let hint = "No addons found. Check the game folder in Settings.";
             return container(text(hint).size(size::CONTROL).style(theme::muted))
                 .center(Fill)
                 .into();
@@ -354,7 +363,8 @@ impl App {
 
         let (badge_text, badge_tone) = match status {
             _ if a.disabled => ("Disabled", Tone::Muted),
-            None => (if self.busy { "Checking…" } else { "Not checked" }, Tone::Muted),
+            None if self.checking(&a.folder) => ("Checking…", Tone::Muted),
+            None => ("Not checked", Tone::Muted),
             Some(s @ UpdateStatus::Outdated(_)) => (s.label(), Tone::Update),
             Some(s @ UpdateStatus::UpToDate(_)) => (s.label(), Tone::Ok),
             Some(s @ UpdateStatus::Ahead(_)) => (s.label(), Tone::Ahead),

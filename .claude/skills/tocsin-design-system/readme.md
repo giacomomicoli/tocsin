@@ -37,7 +37,7 @@ Copy comes straight from the codebase; keep its voice.
 - **Shadows.** One per container. Frame drop shadow; gold glow on focus/selected; no inner shadows.
 - **Hover.** Ghost buttons get a 8% gold wash; primary brightens to crimson-400; rows switch border to `--border-row-hover` (gold-700). **Press:** primary gradient inverts. No scale/shrink.
 - **Disabled.** 40% opacity.
-- **Motion.** None in styles (instant state swaps). The only animation is the three-diamond loader stepping every 250ms.
+- **Motion.** None in styles (instant state swaps). The only animation is the three-diamond loader stepping every 250ms, while something waits (a search, a scan, a check, an install).
 - **Transparency.** Only for tints (badge fill 12%, border 50%, confirm banner 8%) — never blur.
 - **Layout — app shell (every page).** Window 1280×800 (the mock draws a 30px title bar; the app uses the OS one). Two columns:
   - **Sidebar, 240px, never changes between pages.** `--surface-frame-gradient`, separated by a 1px `--border-frame` column (iced: a 1px-wide container — borders are all-sides only). Padding 18/14/14, gap 14. Top→bottom: lockup 52px tall · gold rule · "INSTALLATIONS" label (Cinzel 11, `--text-gold`) · one item per game folder (32px icon slot: the game's own icon, read from the user's executable, else the monogram in Cinzel 13; flavor name in Cinzel 13, "build · N addons" 12, truncated path mono 10, update-count tag; under the cursor a remove mark "×" in its top-right corner, which asks with the ConfirmBanner) · "+ Add game folder" (dashed ghost) · flex spacer · gold rule · page nav (Library, Get addons, Settings) as full-width items, selected = gold `--btn-selected-*`.
@@ -74,7 +74,7 @@ Cinzel, Alegreya Sans and JetBrains Mono are loaded from Google Fonts in the HTM
   - `actions/Button` — primary · secondary · danger · selected · remove mark; sm / md / chip
   - `display/Badge` — status badge; `display/Frame` + `GoldRule`
   - `forms/SearchInput`
-  - `feedback/Notice` + `ConfirmBanner` + `Progress` (a download's bar beside the footer notice) + `Loader`; `feedback/HelpTip`: a "?" that opens or closes the explanation of a badge; `feedback/HoverTip`: the whole of a mono value cut to fit its column, on hover
+  - `feedback/Notice` + `ConfirmBanner` + `Progress` (a download's bar beside the footer notice) + `Loader` (searches, the first scan, and before the footer notice while busy); `feedback/HelpTip`: a "?" that opens or closes the explanation of a badge; `feedback/HoverTip`: the whole of a mono value cut to fit its column, on hover
   - `library/AddonRow` — head, child, missing, removed, wrapped
   - `library/AddonPage` — the addon page: head, source chips, gallery (`theme::thumb`), description blocks (`theme::sunken` for code, pictures shown as links and a loading picture's place, `space::PICTURE_H`), and its entry point NameLink (`theme::name_link`)
 - `ui_kits/tocsin-desktop/` — the visual reference: all three pages in the two-column shell (`Library.dc.html`, tweak `startScreen` and `theme`)

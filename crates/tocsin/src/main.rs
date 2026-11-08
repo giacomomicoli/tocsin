@@ -17,6 +17,16 @@ fn main() -> iced::Result {
         )
         .init();
 
+    // iced parses every system font on the first text layout, after the
+    // window and the GPU are set up: hundreds of milliseconds before the
+    // first frame (much more on a cold disk cache). Start that parse now,
+    // on its own thread, so it overlaps the window and adapter setup.
+    // Safe to race: `font_system` is a `OnceLock`, so whichever caller
+    // comes second waits for the first and gets the same font system.
+    std::thread::spawn(|| {
+        let _ = iced::advanced::graphics::text::font_system();
+    });
+
     // Before the settings are read and before the window (and its event
     // loop) exist: a few renames at most, and only on the first run after
     // an upgrade from an early build.
