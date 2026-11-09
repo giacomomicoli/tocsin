@@ -62,9 +62,9 @@ impl Secret {
     }
 }
 
-/// Errors from the credential store.
+/// Errors from the credential store, worded for the Settings page.
 #[derive(Debug, thiserror::Error)]
-#[error("credential store: {0}")]
+#[error("{0}")]
 pub struct StoreError(String);
 
 impl StoreError {
@@ -73,18 +73,32 @@ impl StoreError {
     /// secret's bytes, which their `Debug` prints. The malformed-data case
     /// gets a fixed message because its Display embeds a platform error's
     /// `Debug`, whose content we do not control.
-    fn from_keyring(e: &keyring::Error) -> Self {
+    ///
+    /// A store that cannot be reached gets its own message, with the way
+    /// out. On Windows and macOS the store is part of the system; on Linux
+    /// it is a separate service (GNOME Keyring, KWallet) that a bare window
+    /// manager or a minimal install may not run, and the raw error there is
+    /// a D-Bus one ("The name org.freedesktop.secrets was not provided by
+    /// any .service files") that tells the user nothing.
+    fn from_keyring(secret: Secret, e: &keyring::Error) -> Self {
         match e {
             keyring::Error::BadEncoding(_) | keyring::Error::BadDataFormat(..) => {
                 StoreError("the stored key is unreadable".into())
             }
-            other => StoreError(other.to_string()),
+            keyring::Error::NoDefaultStore
+            | keyring::Error::PlatformFailure(_)
+            | keyring::Error::NoStorageAccess(_) => StoreError(format!(
+                "the system's password store is not available (missing or locked), so the key \
+                 cannot be kept there. Set {} in your environment instead.",
+                secret.env_var()
+            )),
+            other => StoreError(format!("credential store: {other}")),
         }
     }
 }
 
 fn entry(secret: Secret) -> Result<keyring::Entry, StoreError> {
-    keyring::Entry::new(SERVICE, secret.account()).map_err(|e| StoreError::from_keyring(&e))
+    keyring::Entry::new(SERVICE, secret.account()).map_err(|e| StoreError::from_keyring(secret, &e))
 }
 
 fn clean(s: String) -> Option<String> {
@@ -106,11 +120,13 @@ pub fn from_store(secret: Secret) -> Option<String> {
 pub fn store(secret: Secret, value: &str) -> Result<(), StoreError> {
     let e = entry(secret)?;
     match clean(value.to_string()) {
-        Some(v) => e.set_password(&v).map_err(|err| StoreError::from_keyring(&err)),
+        Some(v) => e
+            .set_password(&v)
+            .map_err(|err| StoreError::from_keyring(secret, &err)),
         None => match e.delete_credential() {
             Ok(()) => Ok(()),
             Err(keyring::Error::NoEntry) => Ok(()),
-            Err(err) => Err(StoreError::from_keyring(&err)),
+            Err(err) => Err(StoreError::from_keyring(secret, &err)),
         },
     }
 }
@@ -183,5 +199,36 @@ mod tests {
         // The store is read before the legacy field and differs from it.
         assert_eq!(key_status(false, Some("new"), Some("old")), KeyStatus::Stored);
         assert_eq!(key_status(false, Some("tok"), None), KeyStatus::Stored);
+    }
+
+    /// Linux without a Secret Service (no GNOME Keyring, KWallet's off): the
+    /// user is told where the key can go instead, not shown a D-Bus error.
+    #[test]
+    fn unreachable_store_points_to_the_environment() {
+        let dbus = "org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.secrets \
+                    was not provided by any .service files";
+        let cases = [
+            keyring::Error::NoDefaultStore,
+            keyring::Error::PlatformFailure(dbus.into()),
+            keyring::Error::NoStorageAccess("locked".into()),
+        ];
+        for e in &cases {
+            let text = StoreError::from_keyring(Secret::CurseForge, e).to_string();
+            assert!(text.contains("TOCSIN_CURSEFORGE_KEY"), "{text}");
+            assert!(!text.contains("freedesktop"), "{text}");
+        }
+        let text = StoreError::from_keyring(Secret::Github, &cases[0]).to_string();
+        assert!(text.contains("TOCSIN_GITHUB_TOKEN"), "{text}");
+    }
+
+    /// The stored bytes never reach a message, and other errors keep theirs.
+    #[test]
+    fn other_store_errors_keep_their_text_but_never_the_secret() {
+        let bad = keyring::Error::BadEncoding(b"s3cret".to_vec());
+        let text = StoreError::from_keyring(Secret::CurseForge, &bad).to_string();
+        assert_eq!(text, "the stored key is unreadable");
+        let long = keyring::Error::TooLong("password".into(), 16);
+        let text = StoreError::from_keyring(Secret::CurseForge, &long).to_string();
+        assert!(text.starts_with("credential store: "), "{text}");
     }
 }

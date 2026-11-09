@@ -39,5 +39,11 @@ pulldown-cmark = { version = "0.13", default-features = false }
 # no default features: only `available_space`, pure Rust over rustix/windows-sys.
 fs4 = { version = "1", default-features = false }
 
+# Linux only: asks the session bus whether a file chooser portal exists, so
+# *Add game folder* can say why no dialog opened (`desktop.rs`). Already in
+# the tree with these features, under keyring's Secret Service store.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "5"
+
 [dev-dependencies]
 tempfile = "3"

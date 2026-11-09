@@ -21,7 +21,9 @@ use tocsin_core::secrets::{self, KeyStatus, Secret};
 use tocsin_core::sources::wowinterface::Catalog;
 use tocsin_core::sources::{curseforge, Credentials, Release};
 use tocsin_core::updater::{self, Prepared, Target};
-use tocsin_core::{checker, detect, InstalledAddon, Manifest, SourceRef, UpdateReport, UpdateStatus};
+use tocsin_core::{
+    checker, desktop, detect, InstalledAddon, Manifest, SourceRef, UpdateReport, UpdateStatus,
+};
 use tocsin_core::{game_icon, icons};
 
 /// Downloaded zips older than this are swept from the cache at startup.
@@ -569,6 +571,8 @@ pub enum Message {
     // settings
     AddGameFolder,
     GameFolderPicked(Option<PathBuf>),
+    /// Why the folder dialog gave nothing back, when the desktop has none.
+    FolderDialogChecked(Option<&'static str>),
     /// Ask before forgetting this game folder (from Settings or the sidebar).
     RemoveGameFolder(usize),
     /// The user confirms: Tocsin stops managing the folder.
@@ -1480,7 +1484,23 @@ impl App {
                 }
                 Task::none()
             }
-            Message::GameFolderPicked(None) => Task::none(),
+            // Closed by the user, or never opened: a Linux desktop may have no
+            // folder dialog at all, and the click must not go unanswered.
+            Message::GameFolderPicked(None) => Task::perform(
+                async {
+                    tokio::task::spawn_blocking(desktop::folder_dialog_problem)
+                        .await
+                        .ok()
+                        .flatten()
+                },
+                Message::FolderDialogChecked,
+            ),
+            Message::FolderDialogChecked(problem) => {
+                if let Some(text) = problem {
+                    self.notice = Some((true, text.into()));
+                }
+                Task::none()
+            }
             Message::RemoveGameFolder(i) => {
                 self.confirm_remove_folder = self.manifest.settings.game_folders.get(i).cloned();
                 Task::none()
