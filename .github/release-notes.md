@@ -1,39 +1,52 @@
 Tocsin tells you when your World of Warcraft addons have a newer version out,
 and updates them for you when it can, by asking the site each one came from:
-CurseForge, WoWInterface, GitHub or Tukui. One small Windows program, no
-account, no telemetry, nothing running in the background.
+CurseForge, WoWInterface, GitHub or Tukui. One small program for Windows and
+Linux, no account, no telemetry, nothing running in the background.
 
-**Download** the `.zip` below, unzip it anywhere and run `tocsin.exe`. To
-check that the file is the one published here, see
+**Download** the file for your system below. To check that it is the one
+published here, see
 [Checking the download](https://github.com/giacomomicoli/tocsin#checking-the-download-optional).
 
-This release is not signed: Windows may show a "Windows protected your PC"
-window the first time (click *More info*, then *Run anyway*), and PCs with
-Smart App Control turned on won't run it. See
+- **Windows**: the `.zip`. Unzip it anywhere and run `tocsin.exe`.
+- **Linux** (x86-64, glibc 2.35 or newer: Ubuntu 22.04, Debian 12, Fedora 36
+  and later): the `.tar.gz`. Unpack it anywhere and run `./tocsin`. See
+  [Getting started on Linux](https://github.com/giacomomicoli/tocsin#on-linux)
+  for the game folder inside a Wine prefix and the menu entry.
+
+This release is not signed. On Windows, a "Windows protected your PC" window
+may show the first time (click *More info*, then *Run anyway*), and PCs with
+Smart App Control turned on won't run it. On Linux nothing warns you, and
+nothing vouches for the file either: the checksum and the build attestation
+are how you check it. See
 [Why the releases aren't signed](https://github.com/giacomomicoli/tocsin#why-the-releases-arent-signed).
 
-### What's new in 0.3.1
+Prefer not to run a downloaded program? The same build takes three commands
+from the source, on either system: see
+[Building it yourself](https://github.com/giacomomicoli/tocsin#building-it-yourself).
 
-Nothing new to learn: this release makes Tocsin show what it is doing, so
-a wait is never a blank one.
+### What's new in 0.4.0
 
-- **Update checks show each answer as it arrives.** Rows used to say
-  *Checking…* until the whole check was over, then flip all at once. Now
-  each badge changes the moment its site answers, and the status line
-  counts along: *Checking updates · 12 of 55…*. Pressing **Check updates**
-  sets the rows back to *Checking…* right away, so the click is visible.
-- **Loaders move.** The three diamonds now step while Tocsin scans a
-  folder, checks for updates, waits for your API keys or installs an addon,
-  and on an addon's page while it and its pictures load. Before, they stood
-  still outside search and downloads.
-- **Addon pages load in reading order, without jumping.** The large
-  screenshot comes first, then the thumbnails, then the pictures of the
-  description, three at a time instead of two. A picture still on its way
-  keeps its place, at the size the page declares for it when it does, so
-  the text under it no longer moves when it appears.
-- **A little quicker to the first frame.** The system fonts are read while
-  the window and the graphics card are set up, instead of after. The gain
-  is small on a warm start and larger on a cold one. Nothing in the app can
-  shorten what happens before it draws (Windows checking a new download, a
-  cold disk); see the note above about unsigned releases.
-  ([#34](https://github.com/giacomomicoli/tocsin/pull/34))
+Tocsin now runs on Linux. On Windows nothing changes: same program, same
+zip.
+
+- **A Linux download.** Next to the Windows zip there is now a `.tar.gz`
+  for 64-bit Linux, built by GitHub the same way, with the same checksum
+  and build attestation. Unpack it and run `./tocsin`: it needs nothing
+  installed beyond what a desktop already has (glibc 2.35 or newer, so
+  Ubuntu 22.04, Debian 12, Fedora 36 and later). World of Warcraft under
+  Wine (Lutris, Bottles, Steam) is managed like on Windows: pick the game
+  folder inside the Wine prefix. Hidden folders such as `~/.wine` show up
+  in the file window with Ctrl+H.
+- **Its name and icon on your desktop.** The tarball carries a menu entry
+  and the icon, with three lines in the README to put them in place. On
+  Wayland that is also what gives the window its icon in the taskbar.
+- **It says so when your desktop lacks something.** On a Linux system with
+  no file chooser, *Add game folder* now tells you what to install instead
+  of doing nothing. With no keyring running, saving an API key tells you
+  it can't be kept and which environment variable to use instead.
+- **One checksum file for every download.** `SHA256SUMS.txt` now lists both
+  the zip and the tarball, and on Linux `sha256sum -c` checks it in one go.
+  A release is published only when both builds succeed.
+- **The README covers all three ways to get Tocsin**: the Windows zip, the
+  Linux tarball, or building it from the source on either system.
+  ([#38](https://github.com/giacomomicoli/tocsin/pull/38))

@@ -26,9 +26,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Linux GUI deps
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev
+      # No system packages on Linux: Wayland, X11 and libxkbcommon are loaded
+      # at run time, never linked (see the `linux` job in release.yml).
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace

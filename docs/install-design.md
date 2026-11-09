@@ -32,7 +32,8 @@ ships".
 ### 1. Download
 
 - Into `<cache>/downloads/<provider>-<id>-<version>.zip`, where `<cache>` is
-  the per-user cache dir (`%LOCALAPPDATA%\tocsin\cache` on Windows).
+  the per-user cache dir (`%LOCALAPPDATA%\tocsin\cache` on Windows,
+  `~/.cache/tocsin` on Linux).
   Never inside the game folder.
 - Through `http::Http` with the same policy as every other request, plus a
   size cap (default 256 MiB; Details and ElvUI are ~20 MiB) and streaming to

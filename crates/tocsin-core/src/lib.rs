@@ -12,6 +12,7 @@ pub mod addon;
 pub mod archive;
 pub mod checker;
 pub mod client;
+pub mod desktop;
 pub mod detect;
 pub mod discover;
 pub mod disk;
