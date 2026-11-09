@@ -7,6 +7,13 @@ updates:
     groups:
       all:
         patterns: ["*"]
+    ignore:
+      # tocsin-core uses zbus directly only because keyring's Secret Service
+      # store already brings it in (see crates/tocsin-core/Cargo.toml). A
+      # major bump here alone would compile a second zbus next to that one,
+      # with another API: move to it by hand when keyring's store does.
+      - dependency-name: zbus
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
