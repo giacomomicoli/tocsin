@@ -5,7 +5,7 @@ and updates them for you when it can. It reads the addons you already have
 and asks the site each one came from: CurseForge, WoWInterface, GitHub or
 Tukui.
 
-It's one small Windows program. No account, no login, nothing left running in
+It's one small program, for Windows and for Linux. No account, no login, nothing left running in
 the background. You open it, it looks at your AddOns folder, and it tells you
 what's out of date.
 
@@ -61,6 +61,8 @@ profiles (the `WTF` folder) are never modified.
 
 ## Getting started
 
+On Linux, see [Getting started on Linux](#getting-started-on-linux) below.
+
 1. Download the `.zip` from the [latest release](../../releases/latest) and
    unzip it wherever you like. There's nothing to install: `tocsin.exe` *is*
    the app, and deleting the folder removes it. The only things left behind
@@ -86,11 +88,67 @@ profiles (the `WTF` folder) are never modified.
 From then on you'll see every addon you have, the version you're on, and,
 for the ones Tocsin can ask about, the newest one available.
 
+### Getting started on Linux
+
+World of Warcraft runs on Linux through Wine (Battle.net in Lutris, Bottles
+or Steam), and Tocsin manages its addons the same way it does on Windows.
+
+1. Download the `.tar.gz` from the [latest release](../../releases/latest)
+   and unpack it wherever you like:
+
+   ```sh
+   tar -xzf tocsin-*-linux-x64.tar.gz
+   ```
+
+   There's nothing to install: `tocsin` *is* the app, and deleting the
+   folder removes it. What's left behind is a small settings file under
+   `~/.config/tocsin`, a cache under `~/.cache/tocsin`, your API keys in the
+   desktop's keyring, and the `.tocsin-*` folders inside `AddOns`.
+2. Run `./tocsin` from that folder.
+3. The first time, Tocsin asks for your game folder. It is inside the Wine
+   prefix the game was installed in, for instance
+   `~/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft` with
+   Lutris, or `~/.wine/drive_c/…` with plain Wine. Folders whose name starts
+   with a dot, like `~/.wine`, are hidden in the file window: **Ctrl+H**
+   shows them. Which folder to pick is the same as in step 3 above.
+
+**To have Tocsin in the application menu**, with its name and icon in the
+taskbar (on Wayland the desktop takes both from this file, so without it the
+window shows a generic icon), copy the program, the menu entry and the icon
+to their places in your home folder. Tocsin doesn't do it for you: it never
+writes outside its own folders and `AddOns`.
+
+```sh
+install -Dm755 tocsin ~/.local/bin/tocsin
+install -Dm644 tocsin.desktop ~/.local/share/applications/tocsin.desktop
+install -Dm644 tocsin.png ~/.local/share/icons/hicolor/256x256/apps/tocsin.png
+```
+
+The menu entry starts `tocsin` by name, so `~/.local/bin` must be on your
+`PATH` (it is on most distributions). If you keep the program elsewhere, put
+its full path on the `Exec=` line of `tocsin.desktop`.
+
+**What your system needs.** The program is built for 64-bit Intel/AMD
+(x86-64) and needs glibc 2.35 or newer: Ubuntu 22.04, Debian 12, Fedora 36
+and anything more recent. Everything else is looked up when it starts, and a
+normal desktop (GNOME, KDE Plasma and the like, on Wayland or X11) already
+has all of it:
+
+- graphics drivers with Vulkan (or OpenGL);
+- `xdg-desktop-portal` with the backend of your desktop, for the window that
+  picks the game folder (`zenity` works too). On a bare window manager you
+  may have to install it; Tocsin says so if no such window can open;
+- a keyring that speaks the Secret Service protocol (GNOME Keyring, KWallet,
+  KeePassXC) to keep your API keys. Without one, Settings tells you the key
+  can't be kept, and you can give it through the environment instead (see
+  [Where keys are kept](#where-keys-are-kept)).
+
 ### Checking the download (optional)
 
 Every release is built by GitHub straight from the code in this repository,
-never on someone's PC. If you want to be sure the zip you have is the one
-that was published, open PowerShell in the folder where you saved it and run:
+never on someone's PC. If you want to be sure the file you have is the one
+that was published, on Windows open PowerShell in the folder where you saved
+it and run:
 
 ```powershell
 Get-FileHash tocsin-*-windows-x64.zip
@@ -106,6 +164,20 @@ further and check that the file was built from this repository:
 
 ```powershell
 gh attestation verify tocsin-v0.3.1-windows-x64.zip --repo giacomomicoli/tocsin
+```
+
+On Linux, download `SHA256SUMS.txt` from the same release page next to the
+`.tar.gz` and run this in that folder. It must answer `OK`:
+
+```sh
+sha256sum -c SHA256SUMS.txt --ignore-missing
+```
+
+And with the GitHub CLI, to check that it was built from this repository
+(put the version you downloaded in the name):
+
+```sh
+gh attestation verify tocsin-<version>-linux-x64.tar.gz --repo giacomomicoli/tocsin
 ```
 
 ## Using it
@@ -287,10 +359,15 @@ button.
 
 ## Where keys are kept
 
-Keys are kept in Windows' own Credential Manager, never written to a file by
-Tocsin, and are only sent to the site they belong to. If you prefer, set
-`TOCSIN_CURSEFORGE_KEY` / `TOCSIN_GITHUB_TOKEN` in your environment instead;
-those win.
+Keys are kept in Windows' own Credential Manager, or on Linux in your
+desktop's keyring (GNOME Keyring, KWallet or another Secret Service
+provider). They are never written to a file by Tocsin, and are only sent to
+the site they belong to. If you prefer, set `TOCSIN_CURSEFORGE_KEY` /
+`TOCSIN_GITHUB_TOKEN` in your environment instead; those win.
+
+On a Linux system with no keyring running, saving a key in Settings fails
+and says so. The environment variables are the way to go there, or install
+and start a keyring and open Tocsin again.
 
 ## Privacy
 
@@ -308,8 +385,9 @@ those win.
   sent.
 - It writes only in your `AddOns` folder (the addons, plus three hidden
   folders for downloads in progress, previous versions and disabled addons),
-  in its own settings file (`%APPDATA%\tocsin`) and cache
-  (`%LOCALAPPDATA%\tocsin`), and your keys go to Windows' Credential Manager.
+  in its own settings file (`%APPDATA%\tocsin`, or `~/.config/tocsin` on
+  Linux) and cache (`%LOCALAPPDATA%\tocsin`, or `~/.cache/tocsin`), and your
+  keys go to Windows' Credential Manager or to your Linux desktop's keyring.
   It never writes into `WTF`.
 - It never installs anything without you pressing a button.
 
@@ -333,7 +411,7 @@ The details, for those who want them, are in
 
 - Signed Windows releases, if an affordable way to sign them comes along.
 - A preview of what changed before you update.
-- Linux and macOS packages.
+- Linux packages (AppImage, Flatpak, AUR) and a macOS build.
 
 ## A word on how it was written
 
@@ -372,7 +450,7 @@ What you get instead is a release you can check for yourself:
 - Every release is built by GitHub from the public code in this repository,
   by the [release workflow](.github/workflows/release.yml), from a version
   tag. Nothing built on a personal computer is ever published.
-- Each zip comes with its SHA-256 checksum and a GitHub build attestation
+- Each download comes with its SHA-256 checksum and a GitHub build attestation
   that ties it to the exact commit it was built from (see
   [Checking the download](#checking-the-download-optional)).
 - If you'd rather not run a downloaded program at all, you can build Tocsin
@@ -382,8 +460,8 @@ What you get instead is a release you can check for yourself:
 
 MIT, see [LICENSE](LICENSE). The bundled fonts (Cinzel, Alegreya Sans,
 JetBrains Mono, in `crates/tocsin/assets/fonts`) are under the SIL Open Font
-License 1.1; their licence texts sit next to them. The release zip carries
-the MIT licence next to `tocsin.exe`, and the font licences in its
+License 1.1; their licence texts sit next to them. Each release archive
+carries the MIT licence next to the program, and the font licences in its
 `licenses` folder together with `THIRD-PARTY-LICENSES.html`, which lists
 every open-source library inside Tocsin and its licence.
 

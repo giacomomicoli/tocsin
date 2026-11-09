@@ -1,15 +1,23 @@
 Tocsin tells you when your World of Warcraft addons have a newer version out,
 and updates them for you when it can, by asking the site each one came from:
-CurseForge, WoWInterface, GitHub or Tukui. One small Windows program, no
-account, no telemetry, nothing running in the background.
+CurseForge, WoWInterface, GitHub or Tukui. One small program for Windows and
+Linux, no account, no telemetry, nothing running in the background.
 
-**Download** the `.zip` below, unzip it anywhere and run `tocsin.exe`. To
-check that the file is the one published here, see
+**Download** the file for your system below. To check that it is the one
+published here, see
 [Checking the download](https://github.com/giacomomicoli/tocsin#checking-the-download-optional).
 
-This release is not signed: Windows may show a "Windows protected your PC"
-window the first time (click *More info*, then *Run anyway*), and PCs with
-Smart App Control turned on won't run it. See
+- **Windows**: the `.zip`. Unzip it anywhere and run `tocsin.exe`.
+- **Linux** (x86-64, glibc 2.35 or newer: Ubuntu 22.04, Debian 12, Fedora 36
+  and later): the `.tar.gz`. Unpack it anywhere and run `./tocsin`. See
+  [Getting started on Linux](https://github.com/giacomomicoli/tocsin#getting-started-on-linux)
+  for the game folder inside a Wine prefix and the menu entry.
+
+This release is not signed. On Windows, a "Windows protected your PC" window
+may show the first time (click *More info*, then *Run anyway*), and PCs with
+Smart App Control turned on won't run it. On Linux nothing warns you, and
+nothing vouches for the file either: the checksum and the build attestation
+are how you check it. See
 [Why the releases aren't signed](https://github.com/giacomomicoli/tocsin#why-the-releases-arent-signed).
 
 ### What's new in 0.3.1

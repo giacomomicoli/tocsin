@@ -322,14 +322,24 @@ that way:
   picture is shown as a link. Nothing of a page is written to disk, and
   closing it drops its pictures and stops their downloads.
 - Only `https://` links are ever handed to your browser.
-- Keys live in the OS credential store. They are read once per session, are
+- Keys live in the OS credential store (Credential Manager on Windows, the
+  Secret Service on Linux). They are read once per session, are
   never shown back in Settings (only whether one is set), and debug output
   prints "set" in their place. There is no key in this repository and no key
-  baked into the binary.
+  baked into the binary. When the store cannot be reached (a Linux desktop
+  with no keyring running), saving a key fails with a message naming the
+  environment variable to use instead; the key is never written anywhere
+  else as a fallback.
+- On Linux, the folder dialog is the desktop's own (`xdg-desktop-portal`, or
+  `zenity`), reached over the session bus. When it gives nothing back,
+  Tocsin asks the bus whether a file chooser exists at all and looks for
+  `zenity` in the `PATH` folders (presence only, nothing is read or run), to
+  say why no window opened. Nothing leaves the machine for this.
 - `cargo deny` (advisories, licenses, bans) runs in CI on every push;
   dependencies are pinned by `Cargo.lock` and bumped by Dependabot.
 - Releases are built only by the GitHub release workflow, never on a
-  developer's machine. Each release zip and the exe inside it carry a GitHub
+  developer's machine. Each release archive (the Windows zip, the Linux
+  tarball) and the program inside it carry a GitHub
   build provenance attestation that ties them to the commit and workflow run
   that produced them; `gh attestation verify <file> --repo giacomomicoli/tocsin`
   checks it.
@@ -338,9 +348,20 @@ Found something? See [SECURITY.md](../SECURITY.md).
 
 ## Building from source
 
-Requires a stable Rust toolchain (https://rustup.rs). On Linux you also need
-Vulkan drivers, `libxkbcommon`, `xdg-desktop-portal` (file dialog) and a
-Secret Service provider such as GNOME Keyring or KWallet (API keys).
+Requires a stable Rust toolchain (https://rustup.rs) and a C compiler (for
+the TLS library). On Linux nothing else is needed to build: no `-dev`
+package is linked, the binary depends on glibc alone. To run, it looks up at
+start-up what a desktop already has: Vulkan (or OpenGL) drivers, Wayland or
+X11 with `libxkbcommon`, `libdbus` and `xdg-desktop-portal` (folder dialog;
+`zenity` is the fallback) and a Secret Service provider such as GNOME
+Keyring or KWallet (API keys).
+
+The released Linux binary is built on Ubuntu 22.04 so that it starts on
+glibc 2.35 and newer; one you build yourself needs the glibc of your own
+machine or newer. Its window uses the application id `tocsin`, which
+`crates/tocsin/assets/linux/tocsin.desktop` matches: installed under
+`~/.local/share/applications`, it gives the window its name and icon on
+Wayland (see *Getting started on Linux* in the README).
 
 ```sh
 cargo run --release -p tocsin                                  # the app

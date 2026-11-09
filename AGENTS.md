@@ -12,7 +12,8 @@ is described in `README.md`; the internals and the security model are in
 The workspace has two crates:
 
 - `crates/tocsin-core` — library, no GUI: `.toc` parsing, discovery heuristics,
-  version comparison, update sources, families, secrets, addon icons
+  version comparison, update sources, families, secrets, what the desktop
+  offers (`desktop.rs`: whether a folder dialog exists on Linux), addon icons
   (`icons.rs`: allowed hosts, capped download, limited decode, disk cache),
   the game's own icon (`game_icon.rs`: capped reads of the executable's
   resources, decoded by `icons.rs`), addon pages (`page/`: description
@@ -191,6 +192,18 @@ logic of its own.
 - Smart App Control can block unsigned build outputs (a proc-macro DLL, a
   test binary) at random. That is the OS policy, not the code: rebuild the
   blocked package (`cargo clean -p <crate>`) and run again, or rely on CI.
+
+## Working on Linux
+
+- The release binary links glibc only; Wayland, X11, `libxkbcommon` and
+  `libdbus` are loaded at run time. A dependency that links a system
+  library breaks "nothing to install": the `linux` job in `release.yml`
+  fails on it, and on a glibc newer than the README's minimum.
+- Platform code stays in `main.rs` and `tocsin_core::desktop`. A new
+  `cfg(target_os = "linux")` elsewhere needs a comment naming the distro or
+  desktop that required it.
+- The window's application id (`main.rs`) and the basename of
+  `crates/tocsin/assets/linux/tocsin.desktop` must stay the same word.
 
 ## Don'ts
 
