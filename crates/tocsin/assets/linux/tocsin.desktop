@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Tocsin
+GenericName=Addon Manager
+Comment=Check World of Warcraft addons for updates at their original source
+# `tocsin` must be on your PATH (~/.local/bin, for instance); otherwise put
+# the full path of the program here.
+Exec=tocsin
+Icon=tocsin
+Terminal=false
+Categories=Game;Utility;
+Keywords=wow;warcraft;addon;addons;
+# The window's application id (Wayland) and class (X11), set in main.rs.
+StartupWMClass=tocsin

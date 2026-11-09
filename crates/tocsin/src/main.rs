@@ -45,6 +45,7 @@ fn main() -> iced::Result {
             size: Size::new(theme::space::WINDOW.0, theme::space::WINDOW.1),
             min_size: Some(Size::new(theme::space::WINDOW_MIN.0, theme::space::WINDOW_MIN.1)),
             icon: window_icon(),
+            platform_specific: platform_specific(),
             ..Default::default()
         })
         .antialiasing(true);
@@ -53,6 +54,25 @@ fn main() -> iced::Result {
         app = app.font(bytes);
     }
     app.run()
+}
+
+/// Wayland compositors ignore the icon a window sets: they look for a
+/// `.desktop` file named after the window's application id and take the icon
+/// and the name from there (KDE Plasma and GNOME both do; without it the
+/// taskbar shows a generic icon). The id is the basename of
+/// `assets/linux/tocsin.desktop`, which the release tarball ships; on X11
+/// the same value becomes the window class.
+#[cfg(target_os = "linux")]
+fn platform_specific() -> window::settings::PlatformSpecific {
+    window::settings::PlatformSpecific {
+        application_id: "tocsin".into(),
+        ..Default::default()
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn platform_specific() -> window::settings::PlatformSpecific {
+    Default::default()
 }
 
 /// The emblem as the window icon. Decoded here because iced's own helper
