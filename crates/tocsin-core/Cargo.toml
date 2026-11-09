@@ -43,7 +43,7 @@ fs4 = { version = "1", default-features = false }
 # *Add game folder* can say why no dialog opened (`desktop.rs`). Already in
 # the tree with these features, under keyring's Secret Service store.
 [target.'cfg(target_os = "linux")'.dependencies]
-zbus = "5"
+zbus = "6"
 
 [dev-dependencies]
 tempfile = "3"
