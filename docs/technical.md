@@ -348,26 +348,40 @@ Found something? See [SECURITY.md](../SECURITY.md).
 
 ## Building from source
 
-Requires a stable Rust toolchain (https://rustup.rs) and a C compiler (for
-the TLS library). On Linux nothing else is needed to build: no `-dev`
-package is linked, the binary depends on glibc alone. To run, it looks up at
-start-up what a desktop already has: Vulkan (or OpenGL) drivers, Wayland or
-X11 with `libxkbcommon`, `libdbus` and `xdg-desktop-portal` (folder dialog;
-`zenity` is the fallback) and a Secret Service provider such as GNOME
-Keyring or KWallet (API keys).
+Tocsin can be had three ways: the Windows zip and the Linux tarball on the
+release page, both built by the release workflow, or built from this source
+on your own machine. The build is the same on both systems.
+
+What it needs:
+
+- a stable Rust toolchain (https://rustup.rs), 1.80 or newer;
+- a C compiler, for the TLS library: on Windows the C++ build tools that
+  `rustup` asks for (Visual Studio Build Tools), on Linux `gcc` or `clang`.
+
+On Linux nothing else is needed to build: no `-dev` package is linked, the
+binary depends on glibc alone.
+
+```sh
+cargo build --release -p tocsin                                # the app, optimized
+cargo run --release -p tocsin                                  # build and start it
+cargo run -p tocsin-core --example check -- <path to AddOns>   # headless check
+cargo test --workspace
+```
+
+The program is `target\release\tocsin.exe` on Windows and
+`target/release/tocsin` on Linux: one file, which can be copied anywhere.
+
+To run, the Linux build looks up at start-up what a desktop already has:
+Vulkan (or OpenGL) drivers, Wayland or X11 with `libxkbcommon`, `libdbus`
+and `xdg-desktop-portal` (folder dialog; `zenity` is the fallback) and a
+Secret Service provider such as GNOME Keyring or KWallet (API keys).
 
 The released Linux binary is built on Ubuntu 22.04 so that it starts on
 glibc 2.35 and newer; one you build yourself needs the glibc of your own
 machine or newer. Its window uses the application id `tocsin`, which
 `crates/tocsin/assets/linux/tocsin.desktop` matches: installed under
 `~/.local/share/applications`, it gives the window its name and icon on
-Wayland (see *Getting started on Linux* in the README).
-
-```sh
-cargo run --release -p tocsin                                  # the app
-cargo run -p tocsin-core --example check -- <path to AddOns>   # headless check
-cargo test --workspace
-```
+Wayland (see *On Linux* in the README).
 
 Release builds use LTO and strip symbols; on Windows the console is hidden.
 [fixtures/README.md](../fixtures/README.md) explains how to try Tocsin on a
@@ -376,3 +390,20 @@ fake AddOns folder.
 Before opening a pull request, run `cargo fmt --all`,
 `cargo clippy --workspace --all-targets -- -D warnings` and
 `cargo test --workspace`; CI runs the same checks plus `cargo deny`.
+
+### What the release workflow adds
+
+`.github/workflows/release.yml` runs on a version tag (`v*`) and does the
+same `cargo build --release -p tocsin` on a Windows and on a Linux runner.
+Around it:
+
+- `cargo about` writes `THIRD-PARTY-LICENSES.html`, the licences of every
+  library in the program;
+- the Windows job packs `tocsin.exe` and the licence texts into
+  `tocsin-<tag>-windows-x64.zip`; the Linux job packs `tocsin`, the licence
+  texts, `tocsin.desktop` and the icon into `tocsin-<tag>-linux-x64.tar.gz`,
+  after checking that the binary links nothing beyond glibc and asks for no
+  glibc newer than 2.35;
+- each job attests its archive and the program inside it;
+- a last job writes one `SHA256SUMS.txt` for both archives and publishes the
+  release. If either build fails, nothing is published.

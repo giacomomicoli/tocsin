@@ -5,8 +5,8 @@ and updates them for you when it can. It reads the addons you already have
 and asks the site each one came from: CurseForge, WoWInterface, GitHub or
 Tukui.
 
-It's one small program, for Windows and for Linux. No account, no login, nothing left running in
-the background. You open it, it looks at your AddOns folder, and it tells you
+It's one small program, for Windows and for Linux. No account, no login,
+nothing left running in the background. You open it, it looks at your AddOns folder, and it tells you
 what's out of date.
 
 > *tocsin*: an alarm bell. Also, it reads `.toc` files. Sorry.
@@ -61,14 +61,26 @@ profiles (the `WTF` folder) are never modified.
 
 ## Getting started
 
-On Linux, see [Getting started on Linux](#getting-started-on-linux) below.
+There are three ways to get Tocsin. The first two give you the same program,
+already built by GitHub from the code in this repository; pick the one for
+your system.
+
+| Your system | What to get | How |
+|---|---|---|
+| Windows 10 or 11, 64-bit | `tocsin-<version>-windows-x64.zip` from the [latest release](../../releases/latest) | [On Windows](#on-windows) |
+| Linux, 64-bit Intel/AMD, glibc 2.35 or newer | `tocsin-<version>-linux-x64.tar.gz` from the [latest release](../../releases/latest) | [On Linux](#on-linux) |
+| Either of them, if you'd rather not run a downloaded program | The source code | [Building it yourself](#building-it-yourself) |
+
+Whichever you choose, there's nothing to install: the program is a single
+file, and deleting its folder removes it.
+
+### On Windows
 
 1. Download the `.zip` from the [latest release](../../releases/latest) and
-   unzip it wherever you like. There's nothing to install: `tocsin.exe` *is*
-   the app, and deleting the folder removes it. The only things left behind
-   are a small settings file under `%APPDATA%\tocsin`, a cache under
-   `%LOCALAPPDATA%\tocsin`, your API keys in Credential Manager, and the
-   `.tocsin-*` folders inside `AddOns`.
+   unzip it wherever you like. `tocsin.exe` *is* the app. The only things
+   left behind when you delete it are a small settings file under
+   `%APPDATA%\tocsin`, a cache under `%LOCALAPPDATA%\tocsin`, your API keys
+   in Credential Manager, and the `.tocsin-*` folders inside `AddOns`.
 2. Run `tocsin.exe`. If Windows shows a blue "Windows protected your PC" window, click
    *More info*, then *Run anyway*. That's Windows being careful with a
    program from a small project that isn't signed (see
@@ -77,18 +89,9 @@ On Linux, see [Getting started on Linux](#getting-started-on-linux) below.
    it and offers no *Run anyway*. There's no way around that for an unsigned
    program, and switching Smart App Control off is a system-wide choice I
    wouldn't make just for Tocsin.
-3. The first time, Tocsin asks for your game folder. Pick your World of
-   Warcraft folder, or `_retail_` (or `_classic_era_`, `_classic_`,
-   `_anniversary_`, `_ptr_`, …) inside it. The `Interface` or `AddOns` folder works
-   too, as long as it sits inside the game: an `AddOns` folder anywhere else
-   (another game's, a backup copy) is refused. If the game has never had
-   addons, start it once (it creates `Interface\AddOns`), or create that
-   folder yourself.
+3. Pick your game folder: see [The first time](#the-first-time).
 
-From then on you'll see every addon you have, the version you're on, and,
-for the ones Tocsin can ask about, the newest one available.
-
-### Getting started on Linux
+### On Linux
 
 World of Warcraft runs on Linux through Wine (Battle.net in Lutris, Bottles
 or Steam), and Tocsin manages its addons the same way it does on Windows.
@@ -100,17 +103,14 @@ or Steam), and Tocsin manages its addons the same way it does on Windows.
    tar -xzf tocsin-*-linux-x64.tar.gz
    ```
 
-   There's nothing to install: `tocsin` *is* the app, and deleting the
-   folder removes it. What's left behind is a small settings file under
-   `~/.config/tocsin`, a cache under `~/.cache/tocsin`, your API keys in the
-   desktop's keyring, and the `.tocsin-*` folders inside `AddOns`.
-2. Run `./tocsin` from that folder.
-3. The first time, Tocsin asks for your game folder. It is inside the Wine
-   prefix the game was installed in, for instance
-   `~/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft` with
-   Lutris, or `~/.wine/drive_c/…` with plain Wine. Folders whose name starts
-   with a dot, like `~/.wine`, are hidden in the file window: **Ctrl+H**
-   shows them. Which folder to pick is the same as in step 3 above.
+   `tocsin` *is* the app. What's left behind when you delete it is a small
+   settings file under `~/.config/tocsin`, a cache under `~/.cache/tocsin`,
+   your API keys in the desktop's keyring, and the `.tocsin-*` folders
+   inside `AddOns`.
+2. Run `./tocsin` from that folder. Nothing warns you about an unsigned
+   program here; to make sure the file is the published one, see
+   [Checking the download](#checking-the-download-optional).
+3. Pick your game folder: see [The first time](#the-first-time).
 
 **To have Tocsin in the application menu**, with its name and icon in the
 taskbar (on Wayland the desktop takes both from this file, so without it the
@@ -143,6 +143,47 @@ has all of it:
   can't be kept, and you can give it through the environment instead (see
   [Where keys are kept](#where-keys-are-kept)).
 
+On an older distribution, or another kind of processor, build it yourself:
+that works wherever Rust does.
+
+### Building it yourself
+
+The downloads above are this, done for you by GitHub. Doing it on your own
+machine takes [Rust](https://rustup.rs) (on Windows, `rustup` also asks for
+Microsoft's C++ build tools; on Linux, a C compiler such as `gcc`), a few
+minutes, and three commands, the same on Windows and Linux:
+
+```sh
+git clone https://github.com/giacomomicoli/tocsin
+cd tocsin
+cargo build --release -p tocsin
+```
+
+The program is then `target/release/tocsin.exe` on Windows and
+`target/release/tocsin` on Linux. Copy it wherever you like and carry on as
+above; on Linux, the menu entry and the icon are in the source too
+(`crates/tocsin/assets/linux/tocsin.desktop`,
+`crates/tocsin/assets/logo/tocsin-emblem-256.png`). More on building, and on
+what the build needs, is in [docs/technical.md](docs/technical.md).
+
+### The first time
+
+Tocsin asks for your game folder. Pick your World of Warcraft folder, or
+`_retail_` (or `_classic_era_`, `_classic_`, `_anniversary_`, `_ptr_`, …)
+inside it. The `Interface` or `AddOns` folder works too, as long as it sits
+inside the game: an `AddOns` folder anywhere else (another game's, a backup
+copy) is refused. If the game has never had addons, start it once (it
+creates `Interface\AddOns`), or create that folder yourself.
+
+On Linux the game is inside the Wine prefix it was installed in, for
+instance `~/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft`
+with Lutris, or `~/.wine/drive_c/…` with plain Wine. Folders whose name
+starts with a dot, like `~/.wine`, are hidden in the file window: **Ctrl+H**
+shows them.
+
+From then on you'll see every addon you have, the version you're on, and,
+for the ones Tocsin can ask about, the newest one available.
+
 ### Checking the download (optional)
 
 Every release is built by GitHub straight from the code in this repository,
@@ -163,7 +204,7 @@ If you use the [GitHub CLI](https://cli.github.com/), you can go one step
 further and check that the file was built from this repository:
 
 ```powershell
-gh attestation verify tocsin-v0.3.1-windows-x64.zip --repo giacomomicoli/tocsin
+gh attestation verify tocsin-v0.4.0-windows-x64.zip --repo giacomomicoli/tocsin
 ```
 
 On Linux, download `SHA256SUMS.txt` from the same release page next to the
@@ -399,6 +440,12 @@ The details, for those who want them, are in
 - **An addon is matched to the wrong source, or never updates.** You can tell
   Tocsin where to look, or to skip it. See *Overriding the guess* in
   [docs/technical.md](docs/technical.md).
+- **On Linux, *Add game folder* opens no window.** Your desktop has no file
+  chooser: install `xdg-desktop-portal` with the backend for your desktop,
+  or `zenity` (see [On Linux](#on-linux)).
+- **On Linux, a key can't be saved.** No keyring is running. Start one, or
+  give the key through the environment (see
+  [Where keys are kept](#where-keys-are-kept)).
 - **I want to undo everything.** Previous versions live in
   `AddOns\.tocsin-backup\<Addon>@<version>\`, disabled addons in
   `AddOns\.tocsin-disabled\`. Moving an addon's folder from there back into
@@ -433,9 +480,10 @@ pull request.
 
 ## For developers
 
-Tocsin is written in Rust. How to build it, how it decides where an addon
-comes from, and its security model are in
-[docs/technical.md](docs/technical.md). Issues and pull requests are welcome.
+Tocsin is written in Rust and builds the same way on Windows and Linux
+(see [Building it yourself](#building-it-yourself)). The build in more
+detail, how it decides where an addon comes from, and its security model are
+in [docs/technical.md](docs/technical.md). Issues and pull requests are welcome.
 
 ## Why the releases aren't signed
 
@@ -443,7 +491,9 @@ Windows trusts a program more when it carries a code signing certificate.
 Those certificates cost money every year, and the free program for open
 source projects I applied to turned Tocsin down, so for now the releases
 are unsigned. That's why Windows warns you the first time, and why Smart App
-Control blocks it.
+Control blocks it. Linux has no such check for a program you download
+yourself, so nothing warns you there, and nothing vouches for the file
+either.
 
 What you get instead is a release you can check for yourself:
 
@@ -454,7 +504,8 @@ What you get instead is a release you can check for yourself:
   that ties it to the exact commit it was built from (see
   [Checking the download](#checking-the-download-optional)).
 - If you'd rather not run a downloaded program at all, you can build Tocsin
-  yourself from the source (see [docs/technical.md](docs/technical.md)).
+  yourself from the source, on Windows or Linux (see
+  [Building it yourself](#building-it-yourself)).
 
 ## License
 
