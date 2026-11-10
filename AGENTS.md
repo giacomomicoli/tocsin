@@ -42,6 +42,7 @@ cargo run -p tocsin-core --example check -- fixtures/AddOns   # headless check
 cargo run -p tocsin-core --example install -- <AddOns> <zip> [key]   # headless install/rollback
 cargo run -p tocsin-core --example search -- <query> [retail|classic|vanilla]   # headless search
 cargo run -p tocsin-core --example page -- github:<owner>/<repo>   # headless addon page (or curseforge:<id>, wowinterface:<id>, tukui:<slug>)
+cargo run -p tocsin-core --example dialog   # whether this desktop can open a folder dialog (Linux)
 ```
 
 CI runs fmt, clippy with `-D warnings`, tests on Windows and Linux, and

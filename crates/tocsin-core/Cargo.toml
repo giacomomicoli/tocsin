@@ -40,10 +40,12 @@ pulldown-cmark = { version = "0.13", default-features = false }
 fs4 = { version = "1", default-features = false }
 
 # Linux only: asks the session bus whether a file chooser portal exists, so
-# *Add game folder* can say why no dialog opened (`desktop.rs`). Already in
-# the tree with these features, under keyring's Secret Service store.
+# *Add game folder* can say why no dialog opened (`desktop.rs`). No default
+# features: one method call on Tokio, no proxy or service macros, no runtime
+# of its own. keyring's Secret Service store still compiles zbus 5 next to
+# it; the two become one when that store moves to 6 (issue #41).
 [target.'cfg(target_os = "linux")'.dependencies]
-zbus = "5"
+zbus = { version = "6", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 tempfile = "3"

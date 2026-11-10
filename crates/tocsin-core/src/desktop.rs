@@ -15,12 +15,12 @@ pub const NO_FOLDER_DIALOG: &str = "The folder window could not open: this deskt
 /// Why the folder dialog gave nothing back: `None` when it could open (the
 /// user closed it), a message for the user when the desktop has no dialog.
 ///
-/// Call it only after the dialog returned nothing, and off the UI thread:
-/// it asks the session bus, which can take a moment on a broken setup.
-pub fn folder_dialog_problem() -> Option<&'static str> {
+/// Call it only after the dialog returned nothing, from a Tokio runtime: it
+/// asks the session bus, which can take a moment on a broken setup.
+pub async fn folder_dialog_problem() -> Option<&'static str> {
     // Only Linux (and the BSDs, untested) lack a dialog of their own.
     #[cfg(target_os = "linux")]
-    return missing_dialog(linux::portal_has_file_chooser(), linux::on_path("zenity"));
+    return missing_dialog(linux::portal_has_file_chooser().await, linux::on_path("zenity"));
     #[cfg(not(target_os = "linux"))]
     None
 }
@@ -35,7 +35,7 @@ fn missing_dialog(portal: bool, zenity: bool) -> Option<&'static str> {
 mod linux {
     use std::time::Duration;
 
-    use zbus::blocking::connection::Builder;
+    use zbus::connection::Builder;
 
     /// A portal whose backend hangs must not hold the answer for the bus's
     /// default 25 seconds.
@@ -46,8 +46,8 @@ mod linux {
     /// `FileChooser` interface only then, so reading its `version` property
     /// answers both. Nothing about the user is sent: the call stays on the
     /// session bus of this machine.
-    pub(super) fn portal_has_file_chooser() -> bool {
-        let Ok(bus) = Builder::session().and_then(|b| b.method_timeout(TIMEOUT).build()) else {
+    pub(super) async fn portal_has_file_chooser() -> bool {
+        let Ok(bus) = Builder::session().method_timeout(TIMEOUT).build().await else {
             return false;
         };
         bus.call_method(
@@ -57,6 +57,7 @@ mod linux {
             "Get",
             &("org.freedesktop.portal.FileChooser", "version"),
         )
+        .await
         .is_ok()
     }
 
