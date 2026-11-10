@@ -1486,15 +1486,9 @@ impl App {
             }
             // Closed by the user, or never opened: a Linux desktop may have no
             // folder dialog at all, and the click must not go unanswered.
-            Message::GameFolderPicked(None) => Task::perform(
-                async {
-                    tokio::task::spawn_blocking(desktop::folder_dialog_problem)
-                        .await
-                        .ok()
-                        .flatten()
-                },
-                Message::FolderDialogChecked,
-            ),
+            Message::GameFolderPicked(None) => {
+                Task::perform(desktop::folder_dialog_problem(), Message::FolderDialogChecked)
+            }
             Message::FolderDialogChecked(problem) => {
                 if let Some(text) = problem {
                     self.notice = Some((true, text.into()));
