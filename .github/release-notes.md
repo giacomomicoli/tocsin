@@ -24,29 +24,23 @@ Prefer not to run a downloaded program? The same build takes three commands
 from the source, on either system: see
 [Building it yourself](https://github.com/giacomomicoli/tocsin#building-it-yourself).
 
-### What's new in 0.4.0
+### What's new in 0.4.1
 
-Tocsin now runs on Linux. On Windows nothing changes: same program, same
-zip.
+A maintenance release: nothing changes in what you see or do. If 0.4.0
+works for you, there is no hurry to replace it.
 
-- **A Linux download.** Next to the Windows zip there is now a `.tar.gz`
-  for 64-bit Linux, built by GitHub the same way, with the same checksum
-  and build attestation. Unpack it and run `./tocsin`: it needs nothing
-  installed beyond what a desktop already has (glibc 2.35 or newer, so
-  Ubuntu 22.04, Debian 12, Fedora 36 and later). World of Warcraft under
-  Wine (Lutris, Bottles, Steam) is managed like on Windows: pick the game
-  folder inside the Wine prefix. Hidden folders such as `~/.wine` show up
-  in the file window with Ctrl+H.
-- **Its name and icon on your desktop.** The tarball carries a menu entry
-  and the icon, with three lines in the README to put them in place. On
-  Wayland that is also what gives the window its icon in the taskbar.
-- **It says so when your desktop lacks something.** On a Linux system with
-  no file chooser, *Add game folder* now tells you what to install instead
-  of doing nothing. With no keyring running, saving an API key tells you
-  it can't be kept and which environment variable to use instead.
-- **One checksum file for every download.** `SHA256SUMS.txt` now lists both
-  the zip and the tarball, and on Linux `sha256sum -c` checks it in one go.
-  A release is published only when both builds succeed.
-- **The README covers all three ways to get Tocsin**: the Windows zip, the
-  Linux tarball, or building it from the source on either system.
-  ([#38](https://github.com/giacomomicoli/tocsin/pull/38))
+- **Linux: the check behind *Add game folder* moved to a newer library.**
+  When the folder window gives nothing back, Tocsin asks the desktop
+  whether it has a file chooser at all, so it can tell you what to install.
+  That question now goes through the current version of the D-Bus library
+  it uses (zbus 6), which keeps the Linux build in step with its
+  dependencies. Same question, same answer, same message. The Linux
+  download is about 350 KB larger until another library Tocsin uses makes
+  the same move.
+  ([#42](https://github.com/giacomomicoli/tocsin/pull/42))
+- **Windows: no change.** The zip is rebuilt from the same code as 0.4.0;
+  only the version number differs.
+
+New in 0.4.0, for those coming from 0.3: Tocsin runs on Linux, with a
+`.tar.gz` next to the Windows zip. See the
+[0.4.0 notes](https://github.com/giacomomicoli/tocsin/releases/tag/v0.4.0).
