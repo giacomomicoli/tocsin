@@ -29,7 +29,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 # Opens the system browser. We only ever pass https:// URLs to it.
 open = "5"
 # Native folder picker.
-rfd = "0.17"
+rfd = "0.18"
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
